@@ -99,7 +99,11 @@ int filePicker(char *path, size_t path_max) {
 	int DIRENTS_MAX = 128;
 	int done = 0;
 
-	consoleDemoInit();
+	PrintConsole topScreen;
+	videoSetMode(MODE_0_2D);
+	vramSetBankA(VRAM_A_MAIN_BG);
+	consoleInit(&topScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
+	consoleSelect(&topScreen);
 	if (!fatInitDefault())
 		err = "fatInitDefault failure";
 

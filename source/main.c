@@ -156,21 +156,30 @@ int main(int argc, char **argv) {
 	char path[512];
 	int rc;
 	
-	// Initialise the console, required for printf
-	consoleDemoInit();
+	PrintConsole topScreen;
+	PrintConsole bottomScreen;
+
+	videoSetMode(MODE_0_2D);
+	videoSetModeSub(MODE_0_2D);
+
+	vramSetBankA(VRAM_A_MAIN_BG);
+	vramSetBankC(VRAM_C_SUB_BG);
+
+	consoleInit(&topScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
+	consoleInit(&bottomScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
+
+	consoleSelect(&bottomScreen);
+	iprintf("Select a GBA Pokemon sav file.");
+	consoleSelect(&topScreen);
 
 	for (;;) {
 		rc = filePicker(path, sizeof(path));
 		if (!rc) break;
 
+		consoleSelect(&bottomScreen);
 		consoleClear();
 		iprintf("File: %s\n", path);
 		print_file_info(path);
-		for (;;) {
-			swiWaitForVBlank();
-			scanKeys();
-			if (keysDown()) break;
-		}
 	}
 
 	return !rc;
