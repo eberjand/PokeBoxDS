@@ -6,6 +6,8 @@
 #include <string.h>
 #include <dirent.h>
 
+#include "ConsoleMenu.h"
+
 #define MAX_CONSOLE_ROWS 24
 #define MAX_CONSOLE_COLS 32
 
@@ -38,27 +40,36 @@ int print_filename(char *name, int is_dir, int pos) {
 	return skip_newline;
 }
 
-void print_dirents(char *pwd, struct dirent *dirents, int num_files, int scroll) {
-	int skip_newline = 0;
-	struct dirent *pent = dirents + scroll;
-	num_files -= scroll;
+int path_ascend(char *path) {
+	char *slash_prev = path;
+	char *slash_cur = path;
+	char *pos = path;
+	char c;
 
-	consoleClear();
-	// Print current directory on the first line
-	iprintf("%s", pwd);
+	// Can't ascend from the root directory
+	if (!strcmp(path, "/"))
+		return 0;
 
-	for (int file_idx = 0; file_idx < num_files; file_idx++, pent++) {
-		if (file_idx >= MAX_CONSOLE_ROWS - 1)
-			break;
-		if (!skip_newline)
-			iprintf("\n");
-		iprintf("  ");
-		skip_newline = print_filename(pent->d_name, pent->d_type == DT_DIR, 0);
+	while ((c = *(++pos)) != 0) {
+		if (c == '/') {
+			slash_prev = slash_cur;
+			slash_cur = pos;
+		}
 	}
-	fflush(stdout);
+	// Ignore the trailing slash, use the second-to-last one instead
+	if (slash_cur + 1 == pos)
+		slash_cur = slash_prev;
+
+	// If ascending to root directory, keep the / and clear the rest
+	if (slash_cur == path)
+		slash_cur++;
+
+	// Ascend by truncating at the last path separator
+	*slash_cur = 0;
+	return 1;
 }
 
-int path_ascend(char *path) {
+int path_ascend_alt(char *path) {
 	char *sep = strrchr(path, '/');
 
 	if (sep == NULL || !strcmp(path, "/"))
@@ -77,47 +88,38 @@ int path_ascend(char *path) {
 
 int path_descend(char *path, char *adding, int path_max) {
 	// Handle the special directory entries
-	if (!strcmp(adding, "."))
-		return 0;
-	if (!strcmp(adding, ".."))
+	if (!strcmp(adding, ".") || !strcmp(adding, "./"))
+		return 1;
+	if (!strcmp(adding, "..") || !strcmp(adding, "../"))
 		return path_ascend(path);
 
-	// Don't open anything that exceeds the pwd
+	// Don't open anything that exceeds the pwd buffer
 	// The +2 accounts for the "/" separator and terminating NUL
 	if (strlen(path) + strlen(adding) + 2 > path_max)
 		return 0;
-	// Don't append a '/' at the root because path already ends with '/'
-	if (strcmp(path, "/"))
-		strcat(path, "/");
 	strcat(path, adding);
 	return 1;
 }
 
 int filePicker(char *path, size_t path_max) {
 	char *err = NULL;
-	struct dirent *dirents;
+	char *dirents;
 	int DIRENTS_MAX = 128;
-	int done = 0;
+	int selected = 0;
+	size_t NAME_LIMIT = sizeof(((struct dirent*)0)->d_name); // 256
 
-	PrintConsole topScreen;
-	videoSetMode(MODE_0_2D);
-	vramSetBankA(VRAM_A_MAIN_BG);
-	consoleInit(&topScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
-	consoleSelect(&topScreen);
 	if (!fatInitDefault())
 		err = "fatInitDefault failure";
 
 	strncpy(path, "/", path_max);
-	dirents = malloc(DIRENTS_MAX * sizeof(struct dirent));
+	dirents = malloc(DIRENTS_MAX * NAME_LIMIT);
 
-	while (!done) {
+	for (;;) {
 		DIR *pdir;
 		struct dirent *pent;
 		int num_files = 0;
-		KEYPAD_BITS keys;
-		int cursor_pos = 0;
-		int scroll_pos = 0;
-		int filename_pos = 0;
+		struct ConsoleMenuItem *menu_items;
+		char *next_name = dirents;
 
 		if (err)
 			break;
@@ -129,111 +131,50 @@ int filePicker(char *path, size_t path_max) {
 			break;
 		}
 
+		menu_items = malloc(DIRENTS_MAX * sizeof(struct ConsoleMenuItem));
+
 		while ((pent = readdir(pdir)) != NULL) {
+			size_t name_len;
+			int is_dir;
+
 			if (!strcmp(pent->d_name, "."))
 				continue;
 			if (num_files >= DIRENTS_MAX)
 				break;
 
-			memcpy(dirents + num_files, pent, sizeof(struct dirent));
+			strncpy(next_name, pent->d_name, NAME_LIMIT);
+			next_name[NAME_LIMIT - 1] = 0;
+			is_dir = (pent->d_type == DT_DIR);
+			if (is_dir) {
+				name_len = strlen(next_name);
+				if (name_len < NAME_LIMIT - 1) {
+					next_name[name_len] = '/';
+					next_name[name_len + 1] = 0;
+				}
+			}
+			menu_items[num_files].str = next_name;
+			menu_items[num_files].extra = is_dir;
+
 			num_files++;
+			next_name += NAME_LIMIT;
 
 		}
 		closedir(pdir);
-		print_dirents(path, dirents, num_files, scroll_pos);
-
-		// Put the cursor at 1,0
-		iprintf("\x1b[1;0H*");
-
-		for (;;) {
-			swiWaitForVBlank();
-			scanKeys();
-			keys = keysDown();
-			if (keys & KEY_A) {
-				pent = dirents + cursor_pos + scroll_pos;
-				if (!path_descend(path, pent->d_name, path_max))
-					continue;
-				if (pent->d_type != DT_DIR) {
-					done = 1;
-				}
+		char *sel_name = NULL;
+		int sel_dir = 0;
+		int opened = console_menu_open(path, menu_items, num_files, &sel_name, &sel_dir);
+		free(menu_items);
+		if (opened) {
+			if (!path_descend(path, sel_name, path_max)) {
 				break;
-			} else if (keys & KEY_B) {
-				if (!path_ascend(path))
-					continue;
+			} else if (!sel_dir) {
+				// Selected item is a regular file, not a directory
+				selected = 1;
 				break;
 			}
-			keys = keysDownRepeat();
-			if (keys & (KEY_DOWN | KEY_UP)) {
-				int rel = (keys & KEY_DOWN) ? 1 : -1;
-				int scrolling = 0;
-				if (cursor_pos + rel < 0) {
-					if (scroll_pos == 0)
-						continue;
-					scrolling = 1;
-				}
-				if (cursor_pos + scroll_pos + rel >= num_files)
-					continue;
-				if (cursor_pos + rel >= MAX_CONSOLE_ROWS - 1)
-					scrolling = 1;
-
-				if (scrolling) {
-					scroll_pos += rel;
-					print_dirents(path, dirents, num_files, scroll_pos);
-				} else {
-					pent = dirents + cursor_pos + scroll_pos;
-					// Overwrite the old indicator with a space
-					iprintf("\x1b[%d;0H  ", cursor_pos + 1);
-					print_filename(pent->d_name, pent->d_type == DT_DIR, 0);
-					cursor_pos += rel;
-				}
-
-				// Write the new indicator
-				iprintf("\x1b[%d;0H*", cursor_pos + 1);
-				filename_pos = 0;
-			}
-			if (keys & (KEY_LEFT | KEY_RIGHT)) {
-				int rel = (keys & KEY_RIGHT) ? 1 : -1;
-				int pos_before = cursor_pos + scroll_pos;
-				int pos_after;
-				int scroll_max;
-				rel *= MAX_CONSOLE_ROWS - 1;
-				pos_after = pos_before + rel;
-				if (pos_after < 0)
-					pos_after = 0;
-				else if (pos_after >= num_files)
-					pos_after = num_files - 1;
-
-				// Don't refresh the screen if the cursor didn't move
-				if (pos_before == pos_after)
-					continue;
-				scroll_pos += rel;
-				scroll_max = num_files - (MAX_CONSOLE_ROWS - 1);
-				if (scroll_pos < 0)
-					scroll_pos = 0;
-				if (scroll_pos > scroll_max)
-					scroll_pos = scroll_max;
-				cursor_pos = pos_after - scroll_pos;
-				print_dirents(path, dirents, num_files, scroll_pos);
-				iprintf("\x1b[%d;0H*", cursor_pos + 1);
-				filename_pos = 0;
-			}
-			if (keys & (KEY_L | KEY_R)) {
-				int rel = (keys & KEY_R) ? 1 : -1;
-				int pos_max;
-				int is_dir;
-				filename_pos += rel;
-				pent = dirents + cursor_pos + scroll_pos;
-				is_dir = pent->d_type == DT_DIR;
-				pos_max = strlen(pent->d_name) + is_dir - (MAX_CONSOLE_COLS - 2);
-				if (pos_max < 0)
-					pos_max = 0;
-				if (filename_pos > pos_max)
-					filename_pos = pos_max;
-				if (filename_pos < 0)
-					filename_pos = 0;
-				iprintf("\x1b[%d;2H", cursor_pos + 1);
-				print_filename(pent->d_name, is_dir, filename_pos);
-			}
+		} else {
+			if (!path_ascend(path))
+				break;
 		}
 	}
 
@@ -250,5 +191,5 @@ int filePicker(char *path, size_t path_max) {
 		}
 		return 0;
 	}
-	return 1;
+	return selected;
 }

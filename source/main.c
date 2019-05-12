@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "file_picker.h"
+#include "ConsoleMenu.h"
 
 /* Resources for data structure:
  * https://bulbapedia.bulbagarden.net/wiki/Save_data_structure_in_Generation_III
@@ -156,30 +157,40 @@ int main(int argc, char **argv) {
 	char path[512];
 	int rc;
 	
-	PrintConsole topScreen;
 	PrintConsole bottomScreen;
-
-	videoSetMode(MODE_0_2D);
 	videoSetModeSub(MODE_0_2D);
-
-	vramSetBankA(VRAM_A_MAIN_BG);
 	vramSetBankC(VRAM_C_SUB_BG);
-
-	consoleInit(&topScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
 	consoleInit(&bottomScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
 
 	consoleSelect(&bottomScreen);
-	iprintf("Select a GBA Pokemon sav file.");
-	consoleSelect(&topScreen);
+
+	struct ConsoleMenuItem top_menu[] = {
+		{"Slot-2 GBA Cartridge", 0},
+		{"SAV file on SD card", 1}
+	};
 
 	for (;;) {
-		rc = filePicker(path, sizeof(path));
-		if (!rc) break;
+		int selected;
+		int extra;
 
-		consoleSelect(&bottomScreen);
-		consoleClear();
-		iprintf("File: %s\n", path);
-		print_file_info(path);
+		selected = console_menu_open("Load Pokemon save data from...", top_menu, 2, NULL, &extra);
+
+		if (extra == 0) {
+			// TODO
+			consoleSelect(&bottomScreen);
+			consoleClear();
+			iprintf("GBA slot loading is currently\nunsupported\n");
+			selected = 0;
+		} else {
+			selected = filePicker(path, sizeof(path));
+		}
+
+		if (selected) {
+			consoleSelect(&bottomScreen);
+			consoleClear();
+			iprintf("File: %s\n", path);
+			print_file_info(path);
+		}
 	}
 
 	return !rc;
