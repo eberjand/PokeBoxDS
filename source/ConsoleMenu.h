@@ -12,7 +12,11 @@ extern "C" {
 
 int console_menu_open(
 	char *header, struct ConsoleMenuItem *items, int size,
-	char **selected_out, int *extra_out);
+	char **name_out, int *extra_out);
+
+int console_menu_open_2(
+	char *header, struct ConsoleMenuItem *items, int size,
+	int *extra_out, int (*func)(char*, int));
 
 #ifdef __cplusplus
 }
@@ -28,6 +32,7 @@ class ConsoleMenu {
 	private:
 	bool printItem(char *name, int scroll_x);
 	void printItems();
+	void updateCursor();
 	void moveCursor(int rel);
 	void movePage(int rel);
 	void scrollName(int rel);

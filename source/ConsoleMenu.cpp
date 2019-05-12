@@ -15,13 +15,23 @@ extern "C" {
 #define HEADER_SIZE 1
 
 extern "C" {
+
 int console_menu_open(
 		char *header, ConsoleMenuItem *items, int size,
-		char **selected_out, int *extra_out) {
+		char **name_out, int *extra_out) {
 	ConsoleMenu menu(header, items, size);
 	menu.initConsole();
-	return menu.openMenu(selected_out, extra_out);
+	return menu.openMenu(name_out, extra_out);
 }
+int console_menu_open_2(
+		char *header, ConsoleMenuItem *items, int size,
+		int *extra_out, int (*func)(char*, int)) {
+	ConsoleMenu menu(header, items, size);
+	menu.setHoverCallback(func);
+	menu.initConsole();
+	return menu.openMenu(NULL, extra_out);
+}
+
 }
 
 ConsoleMenu::ConsoleMenu(char *header, ConsoleMenuItem *items, int size) :
@@ -87,6 +97,17 @@ void ConsoleMenu::printItems() {
 	fflush(stdout);
 }
 
+void ConsoleMenu::updateCursor() {
+	scroll_x = 0;
+	iprintf("\x1b[%d;0H*", cursor_pos + HEADER_SIZE);
+
+	if (callback) {
+		ConsoleMenuItem *item = items + cursor_pos + scroll_y;
+		callback(item->str, item->extra);
+		consoleSelect(&console);
+	}
+}
+
 void ConsoleMenu::moveCursor(int rel) {
 	int scrolling = 0;
 	if (this->cursor_pos + rel < 0) {
@@ -111,10 +132,7 @@ void ConsoleMenu::moveCursor(int rel) {
 		cursor_pos += rel;
 	}
 
-	// Write the new indicator
-	iprintf("\x1b[%d;0H*", this->cursor_pos + HEADER_SIZE);
-	// Reset the horizontal scroll when selecting a different item
-	this->scroll_x = 0;
+	updateCursor();
 }
 
 void ConsoleMenu::movePage(int rel) {
@@ -141,8 +159,7 @@ void ConsoleMenu::movePage(int rel) {
 		this->scroll_y = scroll_max;
 	this->cursor_pos = pos_after - this->scroll_y;
 	printItems();
-	iprintf("\x1b[%d;0H*", this->cursor_pos + HEADER_SIZE);
-	this->scroll_x = 0;
+	updateCursor();
 }
 
 void ConsoleMenu::scrollName(int rel) {
@@ -166,9 +183,7 @@ bool ConsoleMenu::openMenu(char **selected_out, int *extra_out) {
 
 	while (!done) {
 		printItems();
-
-		// Draw the initial cursor
-		iprintf("\x1b[%d;0H*", this->cursor_pos + HEADER_SIZE);
+		updateCursor();
 
 		for (;;) {
 			KEYPAD_BITS keys;
