@@ -84,7 +84,16 @@ void ConsoleMenu::printItems() {
 
 	consoleClear();
 
-	iprintf("%s", this->header);
+	// TODO wrap the header to multiple rows and support "\n" in headers
+	iprintf("%.32s", this->header);
+	if (strlen(this->header) >= MAX_CONSOLE_COLS)
+		skip_newline = true;
+
+	if (this->itemc == 0) {
+		if (!skip_newline)
+			iprintf("\n");
+		iprintf("  (Empty List)");
+	}
 
 	for (int item_idx = 0; item_idx < item_max; item_idx++, item++) {
 		if (item_idx >= MAX_CONSOLE_ROWS - HEADER_SIZE)
@@ -98,6 +107,10 @@ void ConsoleMenu::printItems() {
 }
 
 void ConsoleMenu::updateCursor() {
+	if (this->itemc == 0) {
+		return;
+	}
+
 	scroll_x = 0;
 	iprintf("\x1b[%d;0H*", cursor_pos + HEADER_SIZE);
 
@@ -110,6 +123,8 @@ void ConsoleMenu::updateCursor() {
 
 void ConsoleMenu::moveCursor(int rel) {
 	int scrolling = 0;
+	if (this->itemc == 0)
+		return;
 	if (this->cursor_pos + rel < 0) {
 		if (this->scroll_y == 0)
 			return;
@@ -139,8 +154,12 @@ void ConsoleMenu::movePage(int rel) {
 	int pos_before = this->cursor_pos + this->scroll_y;
 	int pos_after;
 	int scroll_max;
+
 	rel *= MAX_CONSOLE_ROWS - HEADER_SIZE;
 	pos_after = pos_before + rel;
+
+	if (this->itemc == 0)
+		return;
 	if (pos_after < 0)
 		pos_after = 0;
 	else if (pos_after >= this->itemc)
@@ -164,6 +183,10 @@ void ConsoleMenu::movePage(int rel) {
 
 void ConsoleMenu::scrollName(int rel) {
 	int pos_max;
+
+	if (this->itemc == 0)
+		return;
+
 	ConsoleMenuItem *item = this->items + this->cursor_pos + this->scroll_y;
 	this->scroll_x += rel;
 	pos_max = strlen(item->str) - (MAX_CONSOLE_COLS - 2);
@@ -193,7 +216,7 @@ bool ConsoleMenu::openMenu(char **selected_out, int *extra_out) {
 			keys = (KEYPAD_BITS) keysDown();
 			if (keys & KEY_A) {
 				done = true;
-				selecting = true;
+				selecting = this->itemc > 0;
 				break;
 			} else if (keys & KEY_B) {
 				done = true;
