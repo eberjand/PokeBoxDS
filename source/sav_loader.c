@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "ConsoleMenu.h"
+#include "pokemon_strings.h"
 
 /* Resources for data structure:
  * https://bulbapedia.bulbagarden.net/wiki/Save_data_structure_in_Generation_III
@@ -10,6 +11,7 @@
  */
 
 typedef uint8_t u8;
+#define ARRAY_LENGTH(array) (sizeof((array))/sizeof((array)[0]))
 
 int string_to_ascii(char *out, u8 *str, int len) {
 	const u8 map[] =
@@ -169,8 +171,6 @@ struct hover_extra {
 	PrintConsole *console;
 };
 
-#include "species.h"
-
 int hover_callback(char *str, int extra_int) {
 	struct hover_extra *extra = (struct hover_extra*) extra_int;
 	char nickname[12];
@@ -186,10 +186,107 @@ int hover_callback(char *str, int extra_int) {
 			uint8_t marking;
 			uint16_t checksum;
 			uint16_t unknown;
-			u8 encrypted[48];
+			// Decrypted section: Growth
+			uint16_t species;
+			uint16_t held_item;
+			uint32_t experience;
+			uint8_t ppUp;
+			uint8_t friendship;
+			uint16_t unknown_growth;
+			// Decrypted section: Attacks
+			uint16_t moves[4];
+			uint8_t move_pp[4];
+			// Decrypted section: EVs and Contest Condition
+			uint8_t effort[6];
+			uint8_t contest[6];
+			// Decrypted section: Miscellaneous
+			uint8_t pokerus;
+			uint8_t met_location;
+			uint16_t origins;
+			uint32_t IVs;
+			uint32_t ribbons;
 		} __attribute__((packed));
 	};
 	union pkm_t *pkm = (union pkm_t*) extra->pkm;
+
+	nickname[string_to_ascii(nickname, pkm->nickname, 10)] = 0;
+	trainer[string_to_ascii(trainer,  pkm->trainerName, 7)] = 0;
+	uint16_t pokedex_no = get_pokedex_number(pkm->species);
+	consoleSelect(extra->console);
+	consoleClear();
+	if (pkm->species == 0) {
+		iprintf("  0              (Empty Space)\n");
+		return 0;
+	}
+	const char *species_name;
+	species_name = get_species_name_by_index(pkm->species);
+	if (pkm->language == 0x0601) {
+		iprintf("%3d  EGG for a %s\n", pokedex_no, species_name);
+	}
+	else {
+		unsigned lang = pkm->language;
+		char *lang_str =
+			(lang == 0x201) ? "JPN" :
+			(lang == 0x202) ? "ENG" :
+			(lang == 0x203) ? "FRE" :
+			(lang == 0x204) ? "ITA" :
+			(lang == 0x205) ? "GER" :
+			(lang == 0x206) ? "KOR" :
+			(lang == 0x207) ? "SPA" : "???";
+		iprintf("%3d  %-10s  %-10s  %3s", pokedex_no, nickname, species_name, lang_str);
+	}
+	iprintf("OT  %-7s (%s) - %5ld [%5ld]\n",
+		trainer, (pkm->origins & 0x8000) ? "F" : "M",
+		pkm->trainerId & 0xFFFF, pkm->trainerId >> 16);
+	const char *location_name = get_location_name(pkm->met_location);
+	if (location_name)
+		iprintf("Met: %-27s", location_name);
+	else
+		iprintf("Met: Invalid Location (%d\n", pkm->met_location);
+	// TODO add level, experience, PP, friendship, ability, ribbons
+	// TODO add origins info (ball, game, level)
+	const char *item_name = get_item_name(pkm->held_item);
+	if (item_name)
+		iprintf("Item: %-26s", item_name);
+	else
+		iprintf("Item: Invalid (%d)\n", pkm->held_item);
+	iprintf("\nMoves:\n");
+	for (int i = 0; i < 4; i++) {
+		// Because each move is printed to exactly 16 characters, these 4 moves
+		// fill 2 lines perfectly without the need for any newlines
+		const char *move_name = get_move_name(pkm->moves[i]);
+		if (move_name)
+			iprintf("  %-14s", move_name);
+		else
+			iprintf("  Invalid: %-3d  ", pkm->moves[i]);
+	}
+	iprintf("\nStat  HP Atk Def Spd SpA SpD\n  EV");
+	for (int i = 0; i < 6; i++)
+		iprintf(" %3d", (int) pkm->effort[i]);
+	iprintf("\n  IV");
+	for (int i = 0; i < 6; i++)
+		iprintf("  %2ld", (pkm->IVs >> (5 * i)) & 0x1f);
+	iprintf("\n");
+	iprintf("\nContest stats:\n");
+	iprintf(
+		"Cool  %3d  Beaut %3d  Cute %3d\n"
+		"Smart %3d  Tough %3d  Feel %3d\n",
+		(int) pkm->contest[0],  (int) pkm->contest[1], (int) pkm->contest[2],
+		(int) pkm->contest[3], (int) pkm->contest[4],  (int) pkm->contest[5]);
+	iprintf("\nTechnical Data:\n");
+	iprintf(" PID=%08lx  TID=%08lx\n", pkm->personality, pkm->trainerId);
+	for (int i = 0; i < 4; i++) {
+		if (i != 0) iprintf("\n");
+		for (int j = 0; j < 3; j++) {
+			iprintf(" ");
+			for (int k = 0; k < 4; k++)
+				iprintf("%02x", (int) pkm->bytes[32 + i * 12 + j * 4 + k]);
+		}
+	}
+	return 0;
+}
+
+uint16_t decode_pkm_encrypted_data(u8 *pkm) {
 	// There are 4 pkm sections that can be permutated in any order depending on the
 	// personality value.
 	// Encoded values: each byte in this list represents a possible ordering for the
@@ -200,39 +297,26 @@ int hover_callback(char *str, int extra_int) {
 		0xc9, 0x8d, 0xc6, 0x87, 0x4e, 0x4b,
 		0x39, 0x2d, 0x36, 0x27, 0x1e, 0x1b
 	};
-	uint8_t order = data_order[pkm->personality % 24];
-	
-	uint8_t decrypted[48];
-	uint32_t xor = pkm->personality ^ pkm->trainerId;
+	uint16_t checksum = 0;
+	// The entire contents of the 48-byte encrypted section is xored with this
+	uint32_t xor = get32(pkm, 0) ^ get32(pkm, 4);
+	u8 reordered[48];
 
-	string_to_ascii(nickname, pkm->nickname, sizeof(pkm->nickname));
-	string_to_ascii(trainer,  pkm->trainerName, sizeof(pkm->trainerName));
-	memcpy(decrypted, pkm->encrypted, sizeof(decrypted));
-	for (int i = 0; i < sizeof(decrypted); i += sizeof(uint32_t)) {
-		*((uint32_t*) (decrypted + i)) ^= xor;
+	for (int i = 32; i < 80; i += 4) {
+		*((uint32_t*) (pkm + i)) ^= xor;
 	}
-	int off_growth = 12 * (order & 0x3);
-	//int off_attack = 12 * ((order >> 2) & 3);
-	//int off_condit = 12 * ((order >> 4) & 3);
-	int off_misc   = 12 * ((order >> 6) & 3);
-	uint16_t index_no = get16(decrypted, off_growth);
-	uint16_t pokedex_no = pokemon_index_to_dex(index_no);
-	uint16_t origins = get16(decrypted, off_misc + 2);
-	consoleSelect(extra->console);
-	consoleClear();
-	if (index_no > sizeof(pokemon_species) / sizeof(char*)) index_no = 0;
-	iprintf("%3d  %-10s  %-10s\n", pokedex_no, nickname, pokemon_species[index_no]);
-	iprintf("OT  %-7s (%s) - %5ld [%5ld]\n",
-		trainer, (origins & 0x8000) ? "F" : "M",
-		pkm->trainerId & 0xFFFF, pkm->trainerId >> 16);
-	// TODO Met location from decrypted[off_misc + 1];
-	// TODO ability and nature
-	// TODO held item
-	// TODO ball and game of origins (from origins & 0x7800, 0x780)
-	// TODO print stats with lines like "HP  255 255 31  Atk 255 255 31"
-	// TODO contest stats format: "Cool  255  Beaut 255  Cute 255" and Smart,Tough,Feel
-	// TODO print moveset (2 lines, 2 moves per line)
-	return 0;
+
+	uint8_t order = data_order[get32(pkm, 0) % 24];
+
+	// Rearrange to a consistent order: Growth, Attacks, EVs/Condition, then Misc
+	for (int i = 0; i < 4; i++)
+		memcpy(reordered + i * 12, pkm + 32 + 12 * ((order >> (i * 2)) & 3), 12);
+	memcpy(pkm + 32, reordered, 48);
+
+	for (int i = 0; i < 48; i += 2)
+		checksum += get16(reordered, i);
+
+	return checksum;
 }
 
 void open_box(char *name, u8 *box_data) {
@@ -240,6 +324,7 @@ void open_box(char *name, u8 *box_data) {
 	char *cur_nick = nicknames;
 	struct ConsoleMenuItem box_menu[30];
 	struct hover_extra extra_data[30];
+	int box_size = 0;
 
 	PrintConsole console;
 	videoSetModeSub(MODE_0_2D);
@@ -247,19 +332,33 @@ void open_box(char *name, u8 *box_data) {
 	consoleInit(&console, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
 
 	for (int i = 0; i < 30; i++, cur_nick += 11) {
+		u8 *pkm = box_data + (i * 80);
+		uint16_t checksum = decode_pkm_encrypted_data(pkm);
+		// Skip anything with 0 in species field (empty space).
+		// These entries may have leftover/garbage data in the other fields.
+		if (pkm[32] == 0) {
+			continue;
+		}
 		string_to_ascii(cur_nick, box_data + (i * 80) + 8, 10);
-		box_menu[i].str = cur_nick;
-		box_menu[i].extra = (int) &extra_data[i];
-		extra_data[i].pkm = box_data + (i * 80);
+		if (checksum != get16(pkm, 28))
+			strcpy(cur_nick, "BAD EGG");
+		else if (get16(pkm, 18) == 0x601)
+			strcpy(cur_nick, "EGG");
+		extra_data[i].pkm = pkm;
 		extra_data[i].console = &console;
+		box_menu[box_size].str = cur_nick;
+		box_menu[box_size].extra = (int) &extra_data[i];
+		box_size++;
 	}
 	for (;;) {
 		int selected;
 		int extra = 0;
-		selected = console_menu_open_2(name, box_menu, 30, &extra, &hover_callback);
+		selected = console_menu_open_2(name, box_menu, box_size, &extra, &hover_callback);
 		if (!selected)
 			break;
 	}
+	consoleSelect(&console);
+	consoleClear();
 }
 
 void open_boxes(FILE *fp, size_t *sections) {
