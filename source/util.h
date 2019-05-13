@@ -16,6 +16,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
-#include <stdio.h>
 
-void sav_load(char *name, FILE *fp);
+#define ARRAY_LENGTH(array) (sizeof((array))/sizeof((array)[0]))
+void wait_for_button();

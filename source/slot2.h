@@ -16,6 +16,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
-#include <stdio.h>
+#include <stdlib.h>
 
-void sav_load(char *name, FILE *fp);
+const char* readSlot2Save(uint8_t *out);

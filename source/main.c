@@ -16,16 +16,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #include <nds.h>
+#include <fat.h>
 
 #include <stdio.h>
 
 #include "ConsoleMenu.h"
 #include "file_picker.h"
 #include "sav_loader.h"
+#include "slot2.h"
+#include "util.h"
 
 int main(int argc, char **argv) {
 	char path[512];
-	int rc;
+	char *saveBuffer = NULL;
 	
 	PrintConsole bottomScreen;
 	videoSetModeSub(MODE_0_2D);
@@ -39,28 +42,50 @@ int main(int argc, char **argv) {
 		{"SAV file on SD card", 1}
 	};
 
+	// DS only has 4MB RAM. This takes 128K (1/32) of it.
+	// If RAM becomes a problem later, we should read on demand instead.
+	saveBuffer = malloc(1024 * 128);
+
 	for (;;) {
 		int selected;
 		int extra;
+		FILE *fp = NULL;
 
 		selected = console_menu_open("Load Pokemon save data from...", top_menu, 2, NULL, &extra);
 
+		consoleSelect(&bottomScreen);
+		consoleClear();
+
 		if (extra == 0) {
-			// TODO
-			consoleSelect(&bottomScreen);
-			consoleClear();
-			iprintf("GBA slot loading is currently\nunsupported\n");
-			selected = 0;
+			// Slot-2 GBA Cart
+			const char* name = readSlot2Save((uint8_t*) saveBuffer);
+			if (name) {
+				strcpy(path, "GBA: ");
+				strcat(path, name);
+				fp = fmemopen(saveBuffer, 0x20000, "r");
+			} else {
+				iprintf("%s", saveBuffer);
+			}
+			selected = (name != NULL);
 		} else {
+			// SD card
 			selected = filePicker(path, sizeof(path));
+			if (selected)
+				fp = fopen(path, "rb");
 		}
 
 		if (selected) {
 			consoleSelect(&bottomScreen);
 			consoleClear();
-			sav_load(path);
+			sav_load(path, fp);
+		}
+		if (fp) {
+			fclose(fp);
+			fp = NULL;
 		}
 	}
 
-	return !rc;
+	// Unreachable
+	free(saveBuffer);
+	return 0;
 }

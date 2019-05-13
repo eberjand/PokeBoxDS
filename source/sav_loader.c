@@ -21,6 +21,7 @@
 
 #include "ConsoleMenu.h"
 #include "pokemon_strings.h"
+#include "util.h"
 
 /* Resources for data structure:
  * https://bulbapedia.bulbagarden.net/wiki/Save_data_structure_in_Generation_III
@@ -28,7 +29,6 @@
  */
 
 typedef uint8_t u8;
-#define ARRAY_LENGTH(array) (sizeof((array))/sizeof((array)[0]))
 
 int string_to_ascii(char *out, u8 *str, int len) {
 	const u8 map[] =
@@ -172,15 +172,6 @@ void print_trainer_info(FILE *fp, size_t section_offset) {
 	iprintf("Secret  ID: %5d\n", (int) get16(buf, 0xC));
 	iprintf("Play Time: %hd:%02hhd:%02hhd (+%02hhdf)\n",
 		get16(buf, 0xE), buf[0x10], buf[0x11], buf[0x12]);
-}
-
-void wait_for_button() {
-	iprintf("Press any button to continue...");
-	for (;;) {
-		swiWaitForVBlank();
-		scanKeys();
-		if (keysDown()) break;
-	}
 }
 
 struct hover_extra {
@@ -420,14 +411,13 @@ void open_boxes(FILE *fp, size_t *sections) {
 	}
 }
 
-void sav_load(char *path) {
+void sav_load(char *name, FILE *fp) {
 	PrintConsole console;
 	videoSetMode(MODE_0_2D);
 	vramSetBankA(VRAM_A_MAIN_BG);
 	consoleInit(&console, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
 	consoleSelect(&console);
 
-	FILE *fp = fopen(path, "rb");
 	size_t sections[14];
 	uint32_t key;
 	if (!verify_sav(fp, sections)){
@@ -450,7 +440,7 @@ void sav_load(char *path) {
 	int selected;
 	int extra = 0;
 	for (;;) {
-		selected = console_menu_open(path, top_menu, 3, NULL, &extra);
+		selected = console_menu_open(name, top_menu, 3, NULL, &extra);
 		if (!selected)
 			break;
 		if (extra == 0) {
