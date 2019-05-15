@@ -21,6 +21,7 @@
 #include <stdio.h>
 
 #include "ConsoleMenu.h"
+#include "asset_manager.h"
 #include "file_picker.h"
 #include "sav_loader.h"
 #include "slot2.h"
@@ -28,6 +29,7 @@
 
 int main(int argc, char **argv) {
 	char path[512];
+	char romPath[512];
 	uint8_t *saveBuffer = NULL;
 	
 	PrintConsole bottomScreen;
@@ -73,6 +75,8 @@ int main(int argc, char **argv) {
 				strcpy(path, "GBA: ");
 				strcat(path, name);
 				opening_save = 1;
+				if (!assets_init_cart())
+					assets_init_placeholder();
 			}
 		} else if (extra == 1) {
 			// SD card
@@ -82,6 +86,14 @@ int main(int argc, char **argv) {
 				FILE *fp = fopen(path, "rb");
 				fread(saveBuffer, 1, 0x20000, fp);
 				fclose(fp);
+
+				int len;
+				strcpy(romPath, path);
+				len = strlen(romPath);
+				if (len > 4)
+					strcpy(romPath + len - 4, ".gba");
+				if (!assets_init_romfile(romPath))
+					assets_init_placeholder();
 			}
 		} else if (extra == 2) {
 		}

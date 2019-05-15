@@ -21,23 +21,9 @@
 #include <stdint.h>
 #include "util.h"
 
+#include "asset_manager.h"
 #include "cursor.h"
 #include "sav_loader.h"
-
-struct SpritePalette {
-	uint16_t *data;
-	uint16_t tag;
-};
-
-// Rows: Ruby, RubyJP, Sapphire, SapphireJP, FireRed, FRJP, LeafGreen, LGJP, Emerald
-// Cols: IconTable, IconPaletteIndices, IconPaletteTable
-void* rom_icon_offsets[][3] = {
-	{(void*) 0x83bbd20, (void*) 0x83bc400, (void*) 0x83bc5b8},
-	{0, 0, 0},
-	{0, 0, 0},
-	{0, 0, 0},
-	{0, 0, 0}
-};
 
 static PrintConsole topConsole;
 static PrintConsole bottomConsole;
@@ -89,8 +75,7 @@ void decode_box(uint8_t *box_data, uint16_t *checksums) {
 	}
 }
 
-int display_box(uint8_t *box_data, uint16_t **icon_images,
-	uint8_t *icon_palette_indices, uint16_t *checksums) {
+int display_box(uint8_t *box_data, uint16_t *checksums) {
 	int obj_idx = 0;
 
 	for (int i = 0; i < 30; i++) {
@@ -112,11 +97,11 @@ int display_box(uint8_t *box_data, uint16_t **icon_images,
 
 		oamMain.oamMemory[obj_idx + 2].attribute[0] = OBJ_Y((i / 6) * 24 + 64) | ATTR0_COLOR_16;
 		oamMain.oamMemory[obj_idx + 2].attribute[1] = OBJ_X((i % 6) * 24 + 104) | ATTR1_SIZE_32;
-		oamMain.oamMemory[obj_idx + 2].palette = icon_palette_indices[species];
+		oamMain.oamMemory[obj_idx + 2].palette = getIconPaletteIdx(species);
 		oamMain.oamMemory[obj_idx + 2].gfxIndex = (i + 2) * 8;
 		// Each 32x32@4bpp sprite is 512 bytes.
 		// 2 animation frames at 512 bytes each = 1024 bytes per Pokemon.
-		dmaCopy(icon_images[species], (uint8_t*) SPRITE_GFX + (i + 2) * 1024, 1024);
+		dmaCopy(getIconImage(species), (uint8_t*) SPRITE_GFX + (i + 2) * 1024, 1024);
 
 		obj_idx++;
 	}
@@ -145,15 +130,6 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	consoleSelect(&topConsole);
 	consoleClear();
 
-	uint16_t **icon_images = rom_icon_offsets[0][0];
-	uint8_t *icon_palette_indices = rom_icon_offsets[0][1];
-	struct SpritePalette *icon_palettes = rom_icon_offsets[0][2];
-	if (memcmp((void*) 0x080000AC, "AXV", 3)) {
-		iprintf("Cartridge error\n");
-		wait_for_button();
-		return;
-	}
-
 	uint8_t box_data[BOX_SIZE_BYTES];
 	uint16_t checksums[30];
 
@@ -178,14 +154,12 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	active_box = load_box_savedata(box_data, savedata, sections, -1);
 
 	// Load all Pokemon box icon palettes into VRAM
-	for (int i = 0; i < 3; i++) {
-		dmaCopy(icon_palettes[i].data, (uint8_t*) SPRITE_PALETTE + i * 32, 32);
-	}
+	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE, 32 * 3);
 
 	// Initial display
 	display_cursor();
 	decode_box(box_data, checksums);
-	display_box(box_data, icon_images, icon_palette_indices, checksums);
+	display_box(box_data, checksums);
 	display_box_name(box_names[active_box]);
 	info_display_update((union pkm_t*) box_data + cur_poke, checksums[cur_poke]);
 	oamUpdate(&oamMain);
@@ -229,7 +203,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 				active_box = 0;
 			load_box_savedata(box_data, savedata, sections, active_box);
 			decode_box(box_data, checksums);
-			display_box(box_data, icon_images, icon_palette_indices, checksums);
+			display_box(box_data, checksums);
 			display_box_name(box_names[active_box]);
 		}
 		cur_poke = cursor_y * 6 + cursor_x;
