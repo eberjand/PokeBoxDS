@@ -16,7 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
-#include <stdlib.h>
+#include <stdint.h>
+#include <stddef.h>
 
-const char* getGBAGameName(int gameId);
-int readSlot2Save(uint8_t *out);
+void open_boxes(uint8_t *savedata, size_t *sections);

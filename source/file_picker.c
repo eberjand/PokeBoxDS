@@ -125,10 +125,6 @@ int filePicker(char *path, size_t path_max) {
 	int selected = 0;
 	size_t NAME_LIMIT = sizeof(((struct dirent*)0)->d_name); // 256
 
-	if (!fatInitDefault())
-		err = "fatInitDefault failure";
-
-	strncpy(path, "/", path_max);
 	dirents = malloc(DIRENTS_MAX * NAME_LIMIT);
 
 	for (;;) {
@@ -137,9 +133,6 @@ int filePicker(char *path, size_t path_max) {
 		int num_files = 0;
 		struct ConsoleMenuItem *menu_items;
 		char *next_name = dirents;
-
-		if (err)
-			break;
 
 		pdir = opendir(path);
 

@@ -15,11 +15,15 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+#include "sav_loader.h"
 #include <nds.h>
 
 #include <stdio.h>
+#include <stdint.h>
 
 #include "ConsoleMenu.h"
+#include "box_console.h"
+#include "box_gui.h"
 #include "pokemon_strings.h"
 #include "util.h"
 
@@ -28,10 +32,8 @@
  * https://bulbapedia.bulbagarden.net/wiki/Character_encoding_in_Generation_III
  */
 
-typedef uint8_t u8;
-
-int string_to_ascii(char *out, u8 *str, int len) {
-	const u8 map[] =
+int string_to_ascii(char *out, const uint8_t *str, int len) {
+	const uint8_t map[] =
 		" ..............................."
 		"................................"
 		"................................"
@@ -41,7 +43,7 @@ int string_to_ascii(char *out, u8 *str, int len) {
 		"FGHIJKLMNOPQRSTUVWXYZabcdefghijk"
 		"lmnopqrstuvwxyz................\0";
 	for (int i = 0; i < len; i++) {
-		u8 c = map[(uint8_t) str[i]];
+		uint8_t c = map[(uint8_t) str[i]];
 		out[i] = c;
 		if (!c)
 			return i;
@@ -49,34 +51,24 @@ int string_to_ascii(char *out, u8 *str, int len) {
 	return len;
 }
 
-uint16_t get16(u8 *bytes, long pos) {
-	return *((uint16_t*) (bytes + pos));
-}
-
-uint32_t get32(u8 *bytes, long pos) {
-	return *((uint32_t*) (bytes + pos));
-}
-
 // FILE: open file handle for the sav
 // slot_out: address of int where the most recent slot index (0 or 1) will be written
 // sections_out: size_t[14] array that will hold the list of section offsets by ID
-int verify_sav(FILE *fp, size_t *sections_out) {
+int verify_sav(const uint8_t *savedata, size_t *sections_out) {
 	long section_offset = 0;
 	int success = 1;
 	uint16_t saveidx = 0;
-	u8 *section = NULL;
-	uint32_t *words;
 	const uint16_t NUM_SECTIONS = 14;
 	size_t sections[NUM_SECTIONS];
 	union {
-		u8 bytes[32];
+		uint8_t bytes[32];
 		struct {
-			u8 empty[16];
+			uint8_t empty[16];
 			uint32_t unknown_a;
 			uint16_t section_id;
 			uint16_t checksum;
 			uint32_t saveidx;
-		};
+		} __attribute__((packed));
 	} footer;
 	const uint16_t section_sizes[] = {
 		0xf2c, // Trainer info
@@ -95,18 +87,16 @@ int verify_sav(FILE *fp, size_t *sections_out) {
 		0x7d0, // PC I
 	};
 	//assert(sizeof(section_sizes) / sizeof(uint16_t) == NUM_SECTIONS);
-	section = malloc(0x1000); // 4K
-	words = (uint32_t*) section;
-	rewind(fp);
 	for (int slot = 0; slot < 2; slot++) {
 		uint32_t slot_saveidx = 0;
 		uint16_t populated_sections = 0;
 		for (int sectionIdx = 0; sectionIdx < NUM_SECTIONS; sectionIdx++) {
+			const uint8_t *section = NULL;
 			uint32_t checksum = 0;
 			size_t last_nonzero = 0;
-			fread(section, 1, 0x1000, fp);
+			section = savedata + (slot * NUM_SECTIONS + sectionIdx) * 0x1000;
 			for (long wordIdx = 0; wordIdx < 0xFE0 / 4; wordIdx++) {
-				uint32_t word = words[wordIdx];
+				uint32_t word = GET32(section, wordIdx * 4);
 				checksum += word;
 				if (word)
 					last_nonzero = wordIdx;
@@ -115,27 +105,27 @@ int verify_sav(FILE *fp, size_t *sections_out) {
 			checksum &= 0xFFFF;
 			memcpy(footer.bytes, section + 0xFE0, 32);
 			if (footer.section_id >= NUM_SECTIONS) {
-				iprintf("%04lX Invalid section ID: %hd", section_offset, footer.section_id);
+				iprintf("%04lX Invalid section ID: %hd\n", section_offset, footer.section_id);
 				success = 0;
 				break;
 			}
 			if (last_nonzero * 4 >= section_sizes[footer.section_id]) {
-				iprintf("%04lX Section too large", section_offset);
+				iprintf("%04lX Section too large\n", section_offset);
 				success = 0;
 				break;
 			}
 			if (footer.checksum != checksum) {
-				iprintf("%04lX Checksum mismatch", section_offset);
+				iprintf("%04lX Checksum mismatch\n", section_offset);
 				success = 0;
 				break;
 			}
 			if (sectionIdx != 0 && footer.saveidx != slot_saveidx) {
-				iprintf("%04lX Save index mismatch", section_offset);
+				iprintf("%04lX Save index mismatch\n", section_offset);
 				success = 0;
 				break;
 			}
 			if ((populated_sections & (1 << footer.section_id))) {
-				iprintf("%04lX Duplicate section", section_offset);
+				iprintf("%04lX Duplicate section\n", section_offset);
 				success = 0;
 				break;
 			}
@@ -151,77 +141,58 @@ int verify_sav(FILE *fp, size_t *sections_out) {
 				memcpy(sections_out, sections, sizeof(sections));
 		}
 	}
-	free(section);
 	return success;
 }
 
-void print_trainer_info(FILE *fp, size_t section_offset) {
-	u8 buf[256];
+int load_box_savedata(uint8_t *box_data, uint8_t *savedata, size_t *sections, int boxIdx) {
+	size_t box_offset;
+
+	// First 4 bytes of PC buffer is the most recently viewed PC box number
+	if (boxIdx < 0)
+		boxIdx = GET32(savedata, sections[5]);
+	box_offset = boxIdx * BOX_SIZE_BYTES + 4;
+
+	// The actual save data only stores 0xf80 bytes in each section.
+	size_t section = 5 + box_offset / 0xf80;
+	size_t box_mod = box_offset % 0xf80;
+	if (box_mod <= 0xf80 - BOX_SIZE_BYTES) {
+		// Only need to read this box's data from one section
+		memcpy(box_data, savedata + sections[section] + box_mod, BOX_SIZE_BYTES);
+	} else {
+		// This box's data is split between two sections
+		uint32_t bytesFromFirst = 0xf80 - box_mod;
+		memcpy(box_data, savedata + sections[section] + box_mod, bytesFromFirst);
+		memcpy(box_data + bytesFromFirst, savedata + sections[section + 1],
+			BOX_SIZE_BYTES - bytesFromFirst);
+	}
+	return boxIdx;
+}
+
+void print_trainer_info(uint8_t *savedata, size_t section_offset) {
+	uint8_t buf[256];
 	char curString[16] = {0};
 	uint32_t gameid;
-	fseek(fp, section_offset, SEEK_SET);
-	fread(buf, 1, sizeof(buf), fp);
-	gameid = get32(buf, 0xAC);
+	memcpy(buf, savedata + section_offset, sizeof(buf));
+	gameid = GET32(buf, 0xAC);
 	iprintf("Game: %s\n",
 		(gameid == 0) ? "Ruby/Sapphire" :
 		(gameid == 1) ? "FireRed/LeafGreen" : "Emerald");
 	string_to_ascii(curString, buf, 7);
 	iprintf("Name: %s\n", curString);
 	iprintf("Gender: %s\n", buf[0x8] ? "F" : "M");
-	iprintf("Trainer ID: %5d\n", (int) get16(buf, 0xA));
-	iprintf("Secret  ID: %5d\n", (int) get16(buf, 0xC));
+	iprintf("Trainer ID: %5d\n", (int) GET16(buf, 0xA));
+	iprintf("Secret  ID: %5d\n", (int) GET16(buf, 0xC));
 	iprintf("Play Time: %hd:%02hhd:%02hhd (+%02hhdf)\n",
-		get16(buf, 0xE), buf[0x10], buf[0x11], buf[0x12]);
+		GET16(buf, 0xE), buf[0x10], buf[0x11], buf[0x12]);
 }
 
-struct hover_extra {
-	u8 *pkm;
-	PrintConsole *console;
-};
-
-int hover_callback(char *str, int extra_int) {
-	struct hover_extra *extra = (struct hover_extra*) extra_int;
+int print_pokemon_details(const union pkm_t *pkm) {
 	char nickname[12];
 	char trainer[12];
-	union pkm_t {
-		u8 bytes[80];
-		struct {
-			uint32_t personality;
-			uint32_t trainerId;
-			u8 nickname[10];
-			uint16_t language;
-			u8 trainerName[7];
-			uint8_t marking;
-			uint16_t checksum;
-			uint16_t unknown;
-			// Decrypted section: Growth
-			uint16_t species;
-			uint16_t held_item;
-			uint32_t experience;
-			uint8_t ppUp;
-			uint8_t friendship;
-			uint16_t unknown_growth;
-			// Decrypted section: Attacks
-			uint16_t moves[4];
-			uint8_t move_pp[4];
-			// Decrypted section: EVs and Contest Condition
-			uint8_t effort[6];
-			uint8_t contest[6];
-			// Decrypted section: Miscellaneous
-			uint8_t pokerus;
-			uint8_t met_location;
-			uint16_t origins;
-			uint32_t IVs;
-			uint32_t ribbons;
-		} __attribute__((packed));
-	};
-	union pkm_t *pkm = (union pkm_t*) extra->pkm;
 
 	nickname[string_to_ascii(nickname, pkm->nickname, 10)] = 0;
 	trainer[string_to_ascii(trainer,  pkm->trainerName, 7)] = 0;
 	uint16_t pokedex_no = get_pokedex_number(pkm->species);
-	consoleSelect(extra->console);
-	consoleClear();
 	if (pkm->species == 0) {
 		iprintf("  0              (Empty Space)\n");
 		return 0;
@@ -294,7 +265,7 @@ int hover_callback(char *str, int extra_int) {
 	return 0;
 }
 
-uint16_t decode_pkm_encrypted_data(u8 *pkm) {
+uint16_t decode_pkm_encrypted_data(uint8_t *pkm) {
 	// There are 4 pkm sections that can be permutated in any order depending on the
 	// personality value.
 	// Encoded values: each byte in this list represents a possible ordering for the
@@ -307,14 +278,14 @@ uint16_t decode_pkm_encrypted_data(u8 *pkm) {
 	};
 	uint16_t checksum = 0;
 	// The entire contents of the 48-byte encrypted section is xored with this
-	uint32_t xor = get32(pkm, 0) ^ get32(pkm, 4);
-	u8 reordered[48];
+	uint32_t xor = GET32(pkm, 0) ^ GET32(pkm, 4);
+	uint8_t reordered[48];
 
 	for (int i = 32; i < 80; i += 4) {
 		*((uint32_t*) (pkm + i)) ^= xor;
 	}
 
-	uint8_t order = data_order[get32(pkm, 0) % 24];
+	uint8_t order = data_order[GET32(pkm, 0) % 24];
 
 	// Rearrange to a consistent order: Growth, Attacks, EVs/Condition, then Misc
 	for (int i = 0; i < 4; i++)
@@ -322,96 +293,13 @@ uint16_t decode_pkm_encrypted_data(u8 *pkm) {
 	memcpy(pkm + 32, reordered, 48);
 
 	for (int i = 0; i < 48; i += 2)
-		checksum += get16(reordered, i);
+		checksum += GET16(reordered, i);
 
 	return checksum;
 }
 
-void open_box(char *name, u8 *box_data) {
-	char nicknames[11 * 30] = {0}; // 30 pokemon, 10 characters + NUL each
-	char *cur_nick = nicknames;
-	struct ConsoleMenuItem box_menu[30];
-	struct hover_extra extra_data[30];
-	int box_size = 0;
 
-	PrintConsole console;
-	videoSetModeSub(MODE_0_2D);
-	vramSetBankC(VRAM_C_SUB_BG);
-	consoleInit(&console, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
-
-	for (int i = 0; i < 30; i++, cur_nick += 11) {
-		u8 *pkm = box_data + (i * 80);
-		uint16_t checksum = decode_pkm_encrypted_data(pkm);
-		// Skip anything with 0 in species field (empty space).
-		// These entries may have leftover/garbage data in the other fields.
-		if (pkm[32] == 0) {
-			continue;
-		}
-		string_to_ascii(cur_nick, box_data + (i * 80) + 8, 10);
-		if (checksum != get16(pkm, 28))
-			strcpy(cur_nick, "BAD EGG");
-		else if (get16(pkm, 18) == 0x601)
-			strcpy(cur_nick, "EGG");
-		extra_data[i].pkm = pkm;
-		extra_data[i].console = &console;
-		box_menu[box_size].str = cur_nick;
-		box_menu[box_size].extra = (int) &extra_data[i];
-		box_size++;
-	}
-	for (;;) {
-		int selected;
-		int extra = 0;
-		selected = console_menu_open_2(name, box_menu, box_size, &extra, &hover_callback);
-		if (!selected)
-			break;
-	}
-	consoleSelect(&console);
-	consoleClear();
-}
-
-void open_boxes(FILE *fp, size_t *sections) {
-	char box_names[126];
-	const int NUM_BOXES = 14;
-	char *box_name;
-	u8 box_data[30 * 80]; // 30 pokemon per box, 80 bytes per pokemon
-	struct ConsoleMenuItem box_menu[NUM_BOXES];
-	fseek(fp, sections[13] + 0x744, SEEK_SET);
-	fread(box_names, 1, sizeof(box_names), fp);
-	box_name = box_names;
-	for (int i = 0; i < NUM_BOXES; i++, box_name += 9) {
-		string_to_ascii(box_name, (u8*) box_name, 9);
-		box_menu[i].str = box_name;
-		box_menu[i].extra = i;
-	}
-	for (;;) {
-		int selected;
-		int extra = 0;
-		box_name = NULL;
-		selected = console_menu_open("Open PC Box", box_menu, NUM_BOXES, &box_name, &extra);
-		if (!selected)
-			break;
-
-		// First 4 bytes of PC buffer is the most recently viewed PC box number
-		// 30 Pokemon per Box, 80 bytes per Pokemon
-		size_t box_offset = extra * sizeof(box_data) + 4;
-		size_t section = 5 + box_offset / 0xf80;
-		size_t box_mod = box_offset % 0xf80;
-		fseek(fp, sections[section] + box_mod, SEEK_SET);
-		if (box_mod <= 0xf80 - sizeof(box_data)) {
-			// Only need to read this box's data from one section
-			fread(box_data, 1, sizeof(box_data), fp);
-		} else {
-			// This box's data is split between two sections
-			uint32_t bytesFromFirst = 0xf80 - box_mod;
-			fread(box_data, 1, bytesFromFirst, fp);
-			fseek(fp, sections[section + 1], SEEK_SET);
-			fread(box_data + bytesFromFirst, 1, sizeof(box_data) - bytesFromFirst, fp);
-		}
-		open_box(box_name, box_data);
-	}
-}
-
-void sav_load(char *name, FILE *fp) {
+void sav_load(char *name, int gameId, uint8_t *savedata) {
 	PrintConsole console;
 	videoSetMode(MODE_0_2D);
 	vramSetBankA(VRAM_A_MAIN_BG);
@@ -420,36 +308,37 @@ void sav_load(char *name, FILE *fp) {
 
 	size_t sections[14];
 	uint32_t key;
-	if (!verify_sav(fp, sections)){
+	if (!verify_sav(savedata, sections)){
 		wait_for_button();
 		return;
 	}
-	fseek(fp, sections[0] + 0xAC, SEEK_SET);
-	fread(&key, sizeof(uint32_t), 1, fp);
+	key = GET32(savedata, sections[0] + 0xAC);
 	if (key == 1) {
-		fseek(fp, sections[0] + 0xAF8, SEEK_SET);
-		fread(&key, sizeof(uint32_t), 1, fp);
+		key = GET32(savedata, sections[0] + 0xAF8);
 	}
-	rewind(fp);
 
 	struct ConsoleMenuItem top_menu[] = {
-		{"Show trainer info", 0},
-		{"Open PC boxes", 1},
-		{"Open item bag", 2}
+		{"Open PC boxes", 0},
+		{"Show trainer info", 1},
+		{"Open item bag", 2},
+		{"Open PC boxes (Debug)", 3}
 	};
 	int selected;
 	int extra = 0;
 	for (;;) {
-		selected = console_menu_open(name, top_menu, 3, NULL, &extra);
+		selected = console_menu_open(name, top_menu, ARRAY_LENGTH(top_menu), NULL, &extra);
 		if (!selected)
 			break;
 		if (extra == 0) {
+			open_boxes_gui(savedata, sections);
+		} else if (extra == 1) {
 			consoleSelect(&console);
 			consoleClear();
-			print_trainer_info(fp, sections[0]);
+			print_trainer_info(savedata, sections[0]);
 			wait_for_button();
-		} else if (extra == 1) {
-			open_boxes(fp, sections);
+		} else if (extra == 2) {
+		} else if (extra == 3) {
+			open_boxes(savedata, sections);
 		}
 	}
 }

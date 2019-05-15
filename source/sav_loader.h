@@ -16,6 +16,47 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
-#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
 
-void sav_load(char *name, FILE *fp);
+// 30 Pokemon per box, 80 bytes per Pokemon
+#define BOX_SIZE_BYTES (30 * 80)
+
+union pkm_t {
+	uint8_t bytes[80];
+	struct {
+		uint32_t personality;
+		uint32_t trainerId;
+		uint8_t nickname[10];
+		uint16_t language;
+		uint8_t trainerName[7];
+		uint8_t marking;
+		uint16_t checksum;
+		uint16_t unknown;
+		// Decrypted section: Growth
+		uint16_t species;
+		uint16_t held_item;
+		uint32_t experience;
+		uint8_t ppUp;
+		uint8_t friendship;
+		uint16_t unknown_growth;
+		// Decrypted section: Attacks
+		uint16_t moves[4];
+		uint8_t move_pp[4];
+		// Decrypted section: EVs and Contest Condition
+		uint8_t effort[6];
+		uint8_t contest[6];
+		// Decrypted section: Miscellaneous
+		uint8_t pokerus;
+		uint8_t met_location;
+		uint16_t origins;
+		uint32_t IVs;
+		uint32_t ribbons;
+	} __attribute__((packed));
+};
+
+int string_to_ascii(char *out, const uint8_t *str, int len);
+int print_pokemon_details(const union pkm_t *pkm);
+uint16_t decode_pkm_encrypted_data(uint8_t *pkm);
+int load_box_savedata(uint8_t *box_data, uint8_t *savedata, size_t *sections, int boxIdx);
+void sav_load(char *name, int gameId, uint8_t *savedata);

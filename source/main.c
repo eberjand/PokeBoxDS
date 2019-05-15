@@ -28,7 +28,7 @@
 
 int main(int argc, char **argv) {
 	char path[512];
-	char *saveBuffer = NULL;
+	uint8_t *saveBuffer = NULL;
 	
 	PrintConsole bottomScreen;
 	videoSetModeSub(MODE_0_2D);
@@ -37,9 +37,15 @@ int main(int argc, char **argv) {
 
 	consoleSelect(&bottomScreen);
 
+	if (!fatInitDefault()) {
+		iprintf("fatInitDefault failure\n");
+		wait_for_button();
+	}
+
 	struct ConsoleMenuItem top_menu[] = {
 		{"Slot-2 GBA Cartridge", 0},
-		{"SAV file on SD card", 1}
+		{"SAV file on SD card", 1},
+		{"Test", 2},
 	};
 
 	// DS only has 4MB RAM. This takes 128K (1/32) of it.
@@ -47,41 +53,43 @@ int main(int argc, char **argv) {
 	saveBuffer = malloc(1024 * 128);
 
 	for (;;) {
-		int selected;
+		int opening_save = 0;
 		int extra;
-		FILE *fp = NULL;
+		int gameId = -1;
 
-		selected = console_menu_open("Load Pokemon save data from...", top_menu, 2, NULL, &extra);
+		console_menu_open("Load Pokemon save data from...", top_menu,
+			ARRAY_LENGTH(top_menu), NULL, &extra);
 
 		consoleSelect(&bottomScreen);
 		consoleClear();
 
 		if (extra == 0) {
 			// Slot-2 GBA Cart
-			const char* name = readSlot2Save((uint8_t*) saveBuffer);
-			if (name) {
+			gameId = readSlot2Save(saveBuffer);
+			if (gameId < 0) {
+				iprintf("%s", saveBuffer);
+			} else {
+				const char *name = getGBAGameName(gameId);
 				strcpy(path, "GBA: ");
 				strcat(path, name);
-				fp = fmemopen(saveBuffer, 0x20000, "r");
-			} else {
-				iprintf("%s", saveBuffer);
+				opening_save = 1;
 			}
-			selected = (name != NULL);
-		} else {
+		} else if (extra == 1) {
 			// SD card
-			selected = filePicker(path, sizeof(path));
-			if (selected)
-				fp = fopen(path, "rb");
+			strcpy(path, "/");
+			opening_save = filePicker(path, sizeof(path));
+			if (opening_save) {
+				FILE *fp = fopen(path, "rb");
+				fread(saveBuffer, 1, 0x20000, fp);
+				fclose(fp);
+			}
+		} else if (extra == 2) {
 		}
 
-		if (selected) {
+		if (opening_save) {
 			consoleSelect(&bottomScreen);
 			consoleClear();
-			sav_load(path, fp);
-		}
-		if (fp) {
-			fclose(fp);
-			fp = NULL;
+			sav_load(path, gameId, saveBuffer);
 		}
 	}
 

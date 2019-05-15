@@ -18,4 +18,13 @@
 #pragma once
 
 #define ARRAY_LENGTH(array) (sizeof((array))/sizeof((array)[0]))
+
+// Utility functions for reading binary data
+#define GET16(arr, offset) (*((const uint16_t*) ((arr) + (offset))))
+#define GET32(arr, offset) (*((const uint32_t*) ((arr) + (offset))))
+
+// Same as above, but valid lvalue for assignment
+#define SET16(arr, offset) (*((uint16_t*) ((arr) + (offset))))
+#define SET32(arr, offset) (*((uint32_t*) ((arr) + (offset))))
+
 void wait_for_button();

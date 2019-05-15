@@ -26,34 +26,45 @@
 // GBA Flash ROM uses 64KB banks
 #define SIZE_64K (64 * 1024)
 
-static const char* getGameName(char *gamecode) {
-	struct {
-		uint32_t gamecode;
-		const char* name;
-	} known_games[] = {
-		{0x565841 /*AXV*/, "Pokemon Ruby Version"},
-		{0x505841 /*AXP*/, "Pokemon Sapphire Version"},
-		{0x525042 /*BPR*/, "Pokemon FireRed Version"},
-		{0x475042 /*BPG*/, "Pokemon LeafGreen Version"},
-		{0x455042 /*BPE*/, "Pokemon Emerald Version"}
+const char* getGBAGameName(int gameId) {
+	const char *game_names[] = {
+		"Pokemon Ruby Version",
+		"Pokemon Sapphire Version",
+		"Pokemon FireRed Version",
+		"Pokemon LeafGreen Version",
+		"Pokemon Emerald Version"
+	};
+	if (gameId < 0 || gameId >= ARRAY_LENGTH(game_names))
+		return NULL;
+	return game_names[gameId];
+}
+
+static int detectGame(char *gamecode) {
+	uint32_t known_games[] = {
+		0x565841, // AXV: Ruby
+		0x505841, // AXP: Sapphire
+		0x525042, // BPR: FireRed
+		0x475042, // BPG: LeafGreen
+		0x455042, // BPE: Emerald
 	};
 
 	uint32_t code_u32 = *((uint32_t*) gamecode) & 0xFFFFFF;
 
 	for (int i = 0; i < ARRAY_LENGTH(known_games); i++) {
-		if (code_u32 == known_games[i].gamecode) {
-			return known_games[i].name;
+		if (code_u32 == known_games[i]) {
+			return i;
 		}
 	}
-	return NULL;
+	return -1;
 }
 
-const char* readSlot2Save(uint8_t *out) {
-	const char *game;
+int readSlot2Save(uint8_t *out) {
+	int gameId;
 	sysSetBusOwners(true, true);
+	swiDelay(10);
+	gameId = detectGame(GBA_HEADER.gamecode);
 
-	game = getGameName(GBA_HEADER.gamecode);
-	if (!game) {
+	if (gameId < 0) {
 		if (GBA_HEADER.gamecode[0] <= 0 || GBA_HEADER.gamecode[0] > 0x80)
 			strcpy((char*) out, "Error: No GBA cartridge found\n");
 		else
@@ -62,7 +73,7 @@ const char* readSlot2Save(uint8_t *out) {
 				"Title: %.12s\n"
 				"Code:  %.4s\n",
 				GBA_HEADER.title, GBA_HEADER.gamecode);
-		return NULL;
+		return -1;
 	}
 
 	// All main Pokemon games have 1Mb savedata; exactly 2 banks
@@ -82,5 +93,5 @@ const char* readSlot2Save(uint8_t *out) {
 		}
 		out += SIZE_64K;
 	}
-	return game;
+	return gameId;
 }
