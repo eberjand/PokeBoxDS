@@ -27,3 +27,4 @@ uint8_t getIconPaletteIdx(uint16_t species);
 // Returned pointer is only valid until the next call of either function
 const uint16_t* getIconImage(uint16_t species);
 const uint16_t* getIconPaletteColors(int index);
+void readFrontImage(uint8_t *tiles_out, uint8_t *palette_out, uint16_t species, int shiny);

@@ -22,6 +22,7 @@
 #include <stdbool.h>
 #include <nds.h>
 
+#include "unknownFront.h"
 #include "unknownIcon.h"
 #include "util.h"
 
@@ -31,6 +32,8 @@
 
 #define ROM_OFFSET_MASK 0xFFFFFF
 
+uint16_t frontSpriteCompressed[2048];
+
 typedef struct assets_handler {
 	int assetSource;
 	char *file;
@@ -39,6 +42,9 @@ typedef struct assets_handler {
 	uint16_t **iconImageTable;
 	uint8_t *iconPaletteIndices;
 	uint16_t **iconPaletteTable;
+	uint16_t **frontSpriteTable;
+	uint16_t **frontPaletteTable;
+	uint16_t **shinyPaletteTable;
 	FILE *fp;
 	uint8_t buffer[1024];
 	uint8_t palettesData[3 * 32];
@@ -51,63 +57,62 @@ struct rom_offsets_t {
 	char *gamecode;
 	int rev;
 	void *iconTable;
-	void *iconPaletteIndices;
-	void *iconPaletteTable;
+	void *frontSpriteTable;
 };
 static const struct rom_offsets_t rom_offsets[] = {
 	// Ruby
-	{"AXVJ", 0, (void*) 0x8391a98, (void*) 0x8392178, (void*) 0x8392330},
-	{"AXVE", 0, (void*) 0x83bbd20, (void*) 0x83bc400, (void*) 0x83bc5b8},
-	{"AXVE", 1, (void*) 0x83bbd3c, (void*) 0x83bc41c, (void*) 0x83bc5d4},
-	{"AXVE", 2, (void*) 0x83bbd3c, (void*) 0x83bc41c, (void*) 0x83bc5d4},
-	{"AXVF", 0, (void*) 0x83c3704, (void*) 0x83c3de4, (void*) 0x83c3f9c},
-	{"AXVF", 1, (void*) 0x83c3704, (void*) 0x83c3de4, (void*) 0x83c3f9c},
-	{"AXVD", 0, (void*) 0x83c7c30, (void*) 0x83c8310, (void*) 0x83c84c8},
-	{"AXVD", 1, (void*) 0x83c7c30, (void*) 0x83c8310, (void*) 0x83c84c8},
-	{"AXVS", 0, (void*) 0x83bfd84, (void*) 0x83c0464, (void*) 0x83c061c},
-	{"AXVS", 1, (void*) 0x83bfd84, (void*) 0x83c0464, (void*) 0x83c061c},
-	{"AXVI", 0, (void*) 0x83bc974, (void*) 0x83bd054, (void*) 0x83bd20c},
-	{"AXVI", 1, (void*) 0x83bc974, (void*) 0x83bd054, (void*) 0x83bd20c},
+	{"AXVJ", 0, (void*) 0x8391a98, (void*) 0x81bcb60},
+	{"AXVE", 0, (void*) 0x83bbd20, (void*) 0x81e8354},
+	{"AXVE", 1, (void*) 0x83bbd3c, (void*) 0x81e836c},
+	{"AXVE", 2, (void*) 0x83bbd3c, (void*) 0x81e836c},
+	{"AXVF", 0, (void*) 0x83c3704, (void*) 0x81f075c},
+	{"AXVF", 1, (void*) 0x83c3704, (void*) 0x81f075c},
+	{"AXVD", 0, (void*) 0x83c7c30, (void*) 0x81f52d0},
+	{"AXVD", 1, (void*) 0x83c7c30, (void*) 0x81f52d0},
+	{"AXVS", 0, (void*) 0x83bfd84, (void*) 0x81ed074},
+	{"AXVS", 1, (void*) 0x83bfd84, (void*) 0x81ed074},
+	{"AXVI", 0, (void*) 0x83bc974, (void*) 0x81e9ff0},
+	{"AXVI", 1, (void*) 0x83bc974, (void*) 0x81e9ff0},
 
 	// Sapphire
-	{"AXPJ", 0, (void*) 0x8391a7c, (void*) 0x839215c, (void*) 0x8392314},
-	{"AXPE", 0, (void*) 0x83bbd78, (void*) 0x83bc458, (void*) 0x83bc610},
-	{"AXPE", 1, (void*) 0x83bbd98, (void*) 0x83bc478, (void*) 0x83bc630},
-	{"AXPE", 2, (void*) 0x83bbd98, (void*) 0x83bc478, (void*) 0x83bc630},
-	{"AXPF", 0, (void*) 0x83c3234, (void*) 0x83c3914, (void*) 0x83c3acc},
-	{"AXPF", 1, (void*) 0x83c3234, (void*) 0x83c3914, (void*) 0x83c3acc},
-	{"AXPD", 0, (void*) 0x83c7b9c, (void*) 0x83c827c, (void*) 0x83c8434},
-	{"AXPD", 1, (void*) 0x83c7b9c, (void*) 0x83c827c, (void*) 0x83c8434},
-	{"AXPS", 0, (void*) 0x83bfac0, (void*) 0x83c01a0, (void*) 0x83c0358},
-	{"AXPS", 1, (void*) 0x83bfac0, (void*) 0x83c01a0, (void*) 0x83c0358},
-	{"AXPI", 0, (void*) 0x83bc618, (void*) 0x83bccf8, (void*) 0x83bceb0},
-	{"AXPI", 1, (void*) 0x83bc618, (void*) 0x83bccf8, (void*) 0x83bceb0},
+	{"AXPJ", 0, (void*) 0x8391a7c, (void*) 0x81bcaf0},
+	{"AXPE", 0, (void*) 0x83bbd78, (void*) 0x81e82e4},
+	{"AXPE", 1, (void*) 0x83bbd98, (void*) 0x81e82fc},
+	{"AXPE", 2, (void*) 0x83bbd98, (void*) 0x81e82fc},
+	{"AXPF", 0, (void*) 0x83c3234, (void*) 0x81f06ec},
+	{"AXPF", 1, (void*) 0x83c3234, (void*) 0x81f06ec},
+	{"AXPD", 0, (void*) 0x83c7b9c, (void*) 0x81f5264},
+	{"AXPD", 1, (void*) 0x83c7b9c, (void*) 0x81f5264},
+	{"AXPS", 0, (void*) 0x83bfac0, (void*) 0x81ed004},
+	{"AXPS", 1, (void*) 0x83bfac0, (void*) 0x81ed004},
+	{"AXPI", 0, (void*) 0x83bc618, (void*) 0x81e9f80},
+	{"AXPI", 1, (void*) 0x83bc618, (void*) 0x81e9f80},
 
 	// FireRed
-	{"BPRJ", 0, (void*) 0x839bca8, (void*) 0x839c388, (void*) 0x839c540},
-	{"BPRE", 0, (void*) 0x83d37a0, (void*) 0x83d3e80, (void*) 0x83d4038},
-	{"BPRE", 1, (void*) 0x83d3810, (void*) 0x83d3ef0, (void*) 0x83d40a8},
-	{"BPRF", 0, (void*) 0x83cd5e0, (void*) 0x83cdcc0, (void*) 0x83cde78},
-	{"BPRD", 0, (void*) 0x83d30b4, (void*) 0x83d3794, (void*) 0x83d394c},
-	{"BPRS", 0, (void*) 0x83ce958, (void*) 0x83cf038, (void*) 0x83cf1f0},
-	{"BPRI", 0, (void*) 0x83cc270, (void*) 0x83cc950, (void*) 0x83ccb08},
+	{"BPRJ", 0, (void*) 0x839bca8, (void*) 0x81f4690},
+	{"BPRE", 0, (void*) 0x83d37a0, (void*) 0x82350ac},
+	{"BPRE", 1, (void*) 0x83d3810, (void*) 0x823511c},
+	{"BPRF", 0, (void*) 0x83cd5e0, (void*) 0x822f4b8},
+	{"BPRD", 0, (void*) 0x83d30b4, (void*) 0x8234f7c},
+	{"BPRS", 0, (void*) 0x83ce958, (void*) 0x8230818},
+	{"BPRI", 0, (void*) 0x83cc270, (void*) 0x822e150},
 
 	// LeafGreen
-	{"BPGJ", 0, (void*) 0x839bb18, (void*) 0x839c1f8, (void*) 0x839c3b0},
-	{"BPGE", 0, (void*) 0x83d35dc, (void*) 0x83d3cbc, (void*) 0x83d3e74},
-	{"BPGE", 1, (void*) 0x83d364c, (void*) 0x83d3d2c, (void*) 0x83d3ee4},
-	{"BPGF", 0, (void*) 0x83cd41c, (void*) 0x83cdafc, (void*) 0x83cdcb4},
-	{"BPGD", 0, (void*) 0x83d2ef0, (void*) 0x83d35d0, (void*) 0x83d3788},
-	{"BPGS", 0, (void*) 0x83ce794, (void*) 0x83cee74, (void*) 0x83cf02c},
-	{"BPGI", 0, (void*) 0x83cc0ac, (void*) 0x83cc78c, (void*) 0x83cc944},
+	{"BPGJ", 0, (void*) 0x839bb18, (void*) 0x81f466c},
+	{"BPGE", 0, (void*) 0x83d35dc, (void*) 0x8235088},
+	{"BPGE", 1, (void*) 0x83d364c, (void*) 0x82350f8},
+	{"BPGF", 0, (void*) 0x83cd41c, (void*) 0x822f494},
+	{"BPGD", 0, (void*) 0x83d2ef0, (void*) 0x8234f58},
+	{"BPGS", 0, (void*) 0x83ce794, (void*) 0x82307f4},
+	{"BPGI", 0, (void*) 0x83cc0ac, (void*) 0x822e12c},
 
 	// Emerald
-	{"BPEJ", 0, (void*) 0x8556804, (void*) 0x8556ee4, (void*) 0x855709c},
-	{"BPEE", 0, (void*) 0x857bca8, (void*) 0x857c388, (void*) 0x857c540},
-	{"BPEF", 0, (void*) 0x8580020, (void*) 0x8580700, (void*) 0x85808b8},
-	{"BPED", 0, (void*) 0x858caa8, (void*) 0x858d188, (void*) 0x858d340},
-	{"BPES", 0, (void*) 0x857e784, (void*) 0x857ee64, (void*) 0x857f01c},
-	{"BPEI", 0, (void*) 0x857838c, (void*) 0x8578a6c, (void*) 0x8578c24},
+	{"BPEJ", 0, (void*) 0x8556804, (void*) 0x82d4ca8},
+	{"BPEE", 0, (void*) 0x857bca8, (void*) 0x8301418},
+	{"BPEF", 0, (void*) 0x8580020, (void*) 0x8303f48},
+	{"BPED", 0, (void*) 0x858caa8, (void*) 0x8315d88},
+	{"BPES", 0, (void*) 0x857e784, (void*) 0x830767c},
+	{"BPEI", 0, (void*) 0x857838c, (void*) 0x8300ddc},
 };
 
 static bool getIconOffsets(tGBAHeader *header) {
@@ -118,8 +123,11 @@ static bool getIconOffsets(tGBAHeader *header) {
 		if (gamecode == GET32(table->gamecode, 0)) {
 			if (header->version == table->rev) {
 				handler.iconImageTable = table->iconTable;
-				handler.iconPaletteIndices = table->iconPaletteIndices;
-				handler.iconPaletteTable = table->iconPaletteTable;
+				handler.iconPaletteIndices = table->iconTable + 0x6e0;
+				handler.iconPaletteTable = table->iconTable + 0x898;
+				handler.frontSpriteTable = table->frontSpriteTable;
+				handler.frontPaletteTable = table->frontSpriteTable + 0x2260;
+				handler.shinyPaletteTable = table->frontSpriteTable + 0x3020;
 				return true;
 			}
 		}
@@ -216,4 +224,43 @@ const uint16_t* getIconPaletteColors(int index) {
 		return handler.iconPaletteTable[index * 2];
 
 	return (const uint16_t*) (handler.palettesData + index * 32);
+}
+
+void readFrontImage(uint8_t *tiles_out, uint8_t *palette_out, uint16_t species, int shiny) {
+	uint16_t **paletteTable = (shiny) ? handler.shinyPaletteTable : handler.frontPaletteTable;
+	void *tileAddress = NULL;
+	void *palAddress = NULL;
+	u8 palCompressed[64];
+
+	if (handler.assetSource == ASSET_SOURCE_CART) {
+		// Each 8-byte item in this table is a data pointer followed by u16 size, u16 tag
+		// 64x64 image needs 2048 bytes
+		tileAddress = handler.frontSpriteTable[species * 2];
+		// Each 8-byte item in this table is a data pointer followed by u16 tag, u16 padding
+		// 16 color palette is 32 bytes
+		palAddress = paletteTable[species * 2];
+	} else if (handler.assetSource == ASSET_SOURCE_ROMFILE) {
+		FILE *fp = handler.fp;
+		fseek(fp, (long) (handler.frontSpriteTable + species * 2) & ROM_OFFSET_MASK, SEEK_SET);
+		fread(&tileAddress, 4, 1, fp);
+		fseek(fp, (long) (paletteTable + species * 2) & ROM_OFFSET_MASK, SEEK_SET);
+		fread(&palAddress, 4, 1, fp);
+		fseek(fp, (long) tileAddress & ROM_OFFSET_MASK, SEEK_SET);
+		fread(frontSpriteCompressed, 1, sizeof(frontSpriteCompressed), fp);
+		fseek(fp, (long) palAddress & ROM_OFFSET_MASK, SEEK_SET);
+		fread(palCompressed, 1, sizeof(palCompressed), fp);
+		tileAddress = frontSpriteCompressed;
+		palAddress = palCompressed;
+	}
+
+	// Avoid buffer overflows by checking the extracted size
+	if (tileAddress == NULL || (GET32(tileAddress, 0) >> 8) > 4096)
+		memcpy(tiles_out, unknownFrontTiles, 2048);
+	else
+		swiDecompressLZSSWram(tileAddress, tiles_out);
+
+	if (palAddress == NULL || (GET32(palAddress, 0) >> 8) > 64)
+		memcpy(palette_out, unknownFrontPal, 32);
+	else
+		swiDecompressLZSSWram(palAddress, palette_out);
 }

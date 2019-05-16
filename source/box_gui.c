@@ -28,6 +28,12 @@
 static PrintConsole topConsole;
 static PrintConsole bottomConsole;
 
+int activeSprite = 0;
+
+// Each sprite is 2048 bytes
+// Need to allocate enough space for two sprites because of Deoxys
+uint8_t frontSpriteData[4096];
+
 void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 	char nickname[12];
 	if (checksum != pkm->checksum) {
@@ -43,12 +49,28 @@ void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 	if (pkm->species == 0) {
 		consoleSelect(&topConsole);
 		iprintf("\x1b[0;0H%-10s\n", "");
+		oamMain.oamMemory[32].attribute[0] = 0;
+		oamMain.oamMemory[32].attribute[1] = 0;
+		oamMain.oamMemory[32].attribute[2] = 0;
 		return;
 	}
 	print_pokemon_details(pkm);
 
 	consoleSelect(&topConsole);
 	iprintf("\x1b[0;0H%-10s\n", nickname);
+
+	uint8_t palette[32];
+	readFrontImage(frontSpriteData, palette, pkm->species, 0);
+
+	memcpy((uint8_t*) SPRITE_PALETTE + 32 * (4 + activeSprite), palette, 32);
+	memcpy((uint8_t*) SPRITE_GFX + 32 * 1024 + activeSprite * 2048, frontSpriteData, 2048);
+	oamMain.oamMemory[32].attribute[0] = OBJ_Y(16) | ATTR0_COLOR_16;
+	oamMain.oamMemory[32].attribute[1] = OBJ_X(8) | ATTR1_SIZE_64;
+	oamMain.oamMemory[32].palette = 4 + activeSprite;
+	oamMain.oamMemory[32].gfxIndex = 8 * 32 + activeSprite * 16;
+	activeSprite ^= 1;
+
+	consoleSelect(&topConsole);
 }
 
 void display_box_name(const char *name) {
@@ -168,6 +190,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	for (;;) {
 		KEYPAD_BITS keys;
 		swiWaitForVBlank();
+		int cursor_moved = 0;
 
 		// Toggle animation frames once per second
 		frameTimer++;
@@ -188,6 +211,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 			else if (cursor_x > 5)
 				cursor_x = 0;
 			oamMain.oamMemory[0].x = cursor_x * 24 + 104;
+			cursor_moved = 1;
 		} else if (keys & (KEY_UP | KEY_DOWN)) {
 			cursor_y += (keys & KEY_UP) ? -1 : 1;
 			if (cursor_y < 0)
@@ -195,6 +219,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 			else if (cursor_y > 4)
 				cursor_y = 0;
 			oamMain.oamMemory[0].y = cursor_y * 24 + 64;
+			cursor_moved = 1;
 		} else if (keys & (KEY_L | KEY_R)) {
 			active_box += (keys & KEY_L) ? -1 : 1;
 			if (active_box < 0)
@@ -205,9 +230,12 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 			decode_box(box_data, checksums);
 			display_box(box_data, checksums);
 			display_box_name(box_names[active_box]);
+			cursor_moved = 1;
 		}
-		cur_poke = cursor_y * 6 + cursor_x;
-		info_display_update(&((union pkm_t*) box_data)[cur_poke], checksums[cur_poke]);
+		if (cursor_moved) {
+			cur_poke = cursor_y * 6 + cursor_x;
+			info_display_update(&((union pkm_t*) box_data)[cur_poke], checksums[cur_poke]);
+		}
 		oamUpdate(&oamMain);
 	}
 }
