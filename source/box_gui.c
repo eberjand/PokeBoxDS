@@ -35,17 +35,9 @@ int activeSprite = 0;
 uint8_t frontSpriteData[4096];
 
 void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
-	char nickname[12];
-	if (checksum != pkm->checksum) {
-		strcpy(nickname, "BAD EGG");
-	} else if (pkm->language == 0x601) {
-		strcpy(nickname, "EGG");
-	} else {
-		string_to_ascii(nickname, pkm->nickname, 10);
-		nickname[10] = 0;
-	}
 	consoleSelect(&bottomConsole);
 	consoleClear();
+
 	if (pkm->species == 0) {
 		consoleSelect(&topConsole);
 		iprintf("\x1b[0;0H%-10s\n", "");
@@ -54,13 +46,28 @@ void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 		oamMain.oamMemory[32].attribute[2] = 0;
 		return;
 	}
+
+	char nickname[12];
+	u16 species = pkm->species;
+
 	print_pokemon_details(pkm);
+
+	species = pkm_displayed_species(pkm);
+	if (checksum != pkm->checksum) {
+		strcpy(nickname, "BAD EGG");
+		species = 412;
+	} else if (species == 412) {
+		strcpy(nickname, "EGG");
+	} else {
+		string_to_ascii(nickname, pkm->nickname, 10);
+		nickname[10] = 0;
+	}
 
 	consoleSelect(&topConsole);
 	iprintf("\x1b[0;0H%-10s\n", nickname);
 
 	uint8_t palette[32];
-	readFrontImage(frontSpriteData, palette, pkm->species, 0);
+	readFrontImage(frontSpriteData, palette, species, pkm_is_shiny(pkm));
 
 	memcpy((uint8_t*) SPRITE_PALETTE + 32 * (4 + activeSprite), palette, 32);
 	memcpy((uint8_t*) SPRITE_GFX + 32 * 1024 + activeSprite * 2048, frontSpriteData, 2048);
@@ -109,13 +116,9 @@ int display_box(uint8_t *box_data, uint16_t *checksums) {
 		if (species == 0)
 			continue;
 
+		species = pkm_displayed_species(pkm);
 		if (checksums && checksums[i] != pkm->checksum)
 			species = 412; // Egg icon for BAD EGG
-		else if (pkm->language == 0x601)
-			species = 412; // Egg icon for legit EGG
-		else if (species > 439) {
-			species = 252; // Question Mark (Missingno) icon
-		}
 
 		oamMain.oamMemory[obj_idx + 2].attribute[0] = OBJ_Y((i / 6) * 24 + 64) | ATTR0_COLOR_16;
 		oamMain.oamMemory[obj_idx + 2].attribute[1] = OBJ_X((i % 6) * 24 + 104) | ATTR1_SIZE_32;
@@ -185,6 +188,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	display_box_name(box_names[active_box]);
 	info_display_update((union pkm_t*) box_data + cur_poke, checksums[cur_poke]);
 	oamUpdate(&oamMain);
+	keysSetRepeat(20, 10);
 
 	int frameTimer = 0;
 	for (;;) {

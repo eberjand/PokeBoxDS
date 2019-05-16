@@ -186,6 +186,37 @@ void print_trainer_info(uint8_t *savedata, size_t section_offset) {
 		GET16(buf, 0xE), buf[0x10], buf[0x11], buf[0x12]);
 }
 
+int pkm_is_shiny(const union pkm_t *pkm) {
+	uint16_t xor = 0;
+	for (int i = 0; i < 4; i++)
+		xor ^= GET16(pkm->bytes, i * 2);
+	return xor < 8;
+}
+
+#define SPECIES_MISSINGNO 252 // The entire range of 252-276 is ?
+#define SPECIES_UNOWN_A 201
+#define SPECIES_UNOWN_B 413
+#define SPECIES_EGG 412
+#define SPECIES_MAX 439 // Also the Unown for Question Mark
+uint16_t pkm_displayed_species(const union pkm_t *pkm) {
+	uint16_t species = pkm->species;
+	uint32_t personality = pkm->personality;
+	if (pkm->language == 0x601) {
+		species = SPECIES_EGG;
+	} else if (species == SPECIES_UNOWN_A) {
+		uint32_t letterDet = 0;
+		for (int i = 0; i < 4; i++)
+			letterDet |= (personality >> (i * 6)) & (3 << (i * 2));
+		letterDet %= 28;
+		// Unown A is the default sprite, others are after Deoxys
+		if (letterDet > 0)
+			species = SPECIES_UNOWN_B - 1 + letterDet;
+	} else if (species > SPECIES_MAX) {
+		species = SPECIES_MISSINGNO;
+	}
+	return species;
+}
+
 int print_pokemon_details(const union pkm_t *pkm) {
 	char nickname[12];
 	char trainer[12];
@@ -199,8 +230,9 @@ int print_pokemon_details(const union pkm_t *pkm) {
 	}
 	const char *species_name;
 	species_name = get_species_name_by_index(pkm->species);
+	int is_shiny = pkm_is_shiny(pkm);
 	if (pkm->language == 0x0601) {
-		iprintf("%3d  EGG for a %s\n", pokedex_no, species_name);
+		iprintf("%3d %cEGG for a %s\n", pokedex_no, is_shiny ? '*' : ' ', species_name);
 	}
 	else {
 		unsigned lang = pkm->language;
@@ -212,7 +244,8 @@ int print_pokemon_details(const union pkm_t *pkm) {
 			(lang == 0x205) ? "GER" :
 			(lang == 0x206) ? "KOR" :
 			(lang == 0x207) ? "SPA" : "???";
-		iprintf("%3d  %-10s  %-10s  %3s", pokedex_no, nickname, species_name, lang_str);
+		iprintf("%3d %c%-10s  %-10s  %3s",
+			pokedex_no, is_shiny ? '*' : ' ', nickname, species_name, lang_str);
 	}
 	iprintf("OT  %-7s (%s) - %5ld [%5ld]\n",
 		trainer, (pkm->origins & 0x8000) ? "F" : "M",

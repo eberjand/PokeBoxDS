@@ -56,6 +56,8 @@ union pkm_t {
 };
 
 int string_to_ascii(char *out, const uint8_t *str, int len);
+int pkm_is_shiny(const union pkm_t *pkm);
+uint16_t pkm_displayed_species(const union pkm_t *pkm);
 int print_pokemon_details(const union pkm_t *pkm);
 uint16_t decode_pkm_encrypted_data(uint8_t *pkm);
 int load_box_savedata(uint8_t *box_data, uint8_t *savedata, size_t *sections, int boxIdx);
