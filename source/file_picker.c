@@ -118,6 +118,10 @@ int path_descend(char *path, char *adding, int path_max) {
 	return 1;
 }
 
+int comparator(const void *a, const void *b) {
+	return strcmp(((struct ConsoleMenuItem*) a)->str, ((struct ConsoleMenuItem*) b)->str);
+}
+
 int filePicker(char *path, size_t path_max) {
 	char *err = NULL;
 	char *dirents;
@@ -170,6 +174,7 @@ int filePicker(char *path, size_t path_max) {
 
 		}
 		closedir(pdir);
+		qsort(menu_items, num_files, sizeof(*menu_items), &comparator);
 		char *sel_name = NULL;
 		int sel_dir = 0;
 		int opened = console_menu_open(path, menu_items, num_files, &sel_name, &sel_dir);
