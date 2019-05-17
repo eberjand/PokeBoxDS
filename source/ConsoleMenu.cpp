@@ -34,14 +34,14 @@ extern "C" {
 extern "C" {
 
 int console_menu_open(
-		char *header, ConsoleMenuItem *items, int size,
+		const char *header, const ConsoleMenuItem *items, int size,
 		char **name_out, int *extra_out) {
 	ConsoleMenu menu(header, items, size);
 	menu.initConsole();
 	return menu.openMenu(name_out, extra_out);
 }
 int console_menu_open_2(
-		char *header, ConsoleMenuItem *items, int size,
+		const char *header, const ConsoleMenuItem *items, int size,
 		int *extra_out, int (*func)(char*, int)) {
 	ConsoleMenu menu(header, items, size);
 	menu.setHoverCallback(func);
@@ -49,9 +49,17 @@ int console_menu_open_2(
 	return menu.openMenu(NULL, extra_out);
 }
 
+int console_menu_open_cfg(const struct ConsoleMenuConfig *cfg) {
+	ConsoleMenu menu(cfg->header, cfg->items, cfg->size);
+	menu.setHoverCallback(cfg->func);
+	menu.initConsole();
+	menu.setSelected(cfg->startIndex);
+	return menu.openMenu(cfg->name_out, cfg->extra_out);
 }
 
-ConsoleMenu::ConsoleMenu(char *header, ConsoleMenuItem *items, int size) :
+}
+
+ConsoleMenu::ConsoleMenu(const char *header, const ConsoleMenuItem *items, int size) :
 	header(header),
 	items(items),
 	itemc(size),
@@ -70,6 +78,22 @@ void ConsoleMenu::initConsole() {
 	consoleInit(&this->console, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
 	consoleSelect(&this->console);
 }
+
+void ConsoleMenu::setSelected(int pos) {
+	int scroll_max;
+	if (pos < 0 || pos >= itemc)
+		return;
+
+	// Try to put the selected item in the middle of the screen
+	scroll_y = pos - (MAX_CONSOLE_ROWS - HEADER_SIZE) / 2;
+	scroll_max = this->itemc - (MAX_CONSOLE_ROWS - HEADER_SIZE);
+	if (scroll_y > scroll_max)
+		scroll_y = scroll_max;
+	if (scroll_y < 0)
+		scroll_y = 0;
+	cursor_pos = pos - scroll_y;
+}
+
 
 bool ConsoleMenu::printItem(char *name, int scroll_x) {
 	int name_len = strlen(name);
@@ -97,7 +121,7 @@ bool ConsoleMenu::printItem(char *name, int scroll_x) {
 void ConsoleMenu::printItems() {
 	int item_max = this->itemc - this->scroll_y;
 	bool skip_newline = false;
-	ConsoleMenuItem *item = this->items + this->scroll_y;
+	const ConsoleMenuItem *item = this->items + this->scroll_y;
 
 	consoleClear();
 
@@ -132,7 +156,7 @@ void ConsoleMenu::updateCursor() {
 	iprintf("\x1b[%d;0H*", cursor_pos + HEADER_SIZE);
 
 	if (callback) {
-		ConsoleMenuItem *item = items + cursor_pos + scroll_y;
+		const ConsoleMenuItem *item = items + cursor_pos + scroll_y;
 		callback(item->str, item->extra);
 		consoleSelect(&console);
 	}
@@ -156,7 +180,7 @@ void ConsoleMenu::moveCursor(int rel) {
 		this->scroll_y += rel;
 		printItems();
 	} else {
-		ConsoleMenuItem *item = this->items + this->cursor_pos + this->scroll_y;
+		const ConsoleMenuItem *item = this->items + this->cursor_pos + this->scroll_y;
 		// Overwrite the old indicator with a space
 		iprintf("\x1b[%d;0H  ", this->cursor_pos + HEADER_SIZE);
 		// Redraw the item name without a horizontal scroll
@@ -204,7 +228,7 @@ void ConsoleMenu::scrollName(int rel) {
 	if (this->itemc == 0)
 		return;
 
-	ConsoleMenuItem *item = this->items + this->cursor_pos + this->scroll_y;
+	const ConsoleMenuItem *item = this->items + this->cursor_pos + this->scroll_y;
 	this->scroll_x += rel;
 	pos_max = strlen(item->str) - (MAX_CONSOLE_COLS - 2);
 	if (pos_max < 0)
@@ -221,6 +245,7 @@ bool ConsoleMenu::openMenu(char **selected_out, int *extra_out) {
 	bool selecting = false;
 	bool done = false;
 
+	keysSetRepeat(15, 5);
 	while (!done) {
 		printItems();
 		updateCursor();
@@ -253,7 +278,7 @@ bool ConsoleMenu::openMenu(char **selected_out, int *extra_out) {
 	}
 
 	if (selecting) {
-		ConsoleMenuItem *item = this->items + this->cursor_pos + this->scroll_y;
+		const ConsoleMenuItem *item = this->items + this->cursor_pos + this->scroll_y;
 		if (selected_out)
 			*selected_out = item->str;
 		if (extra_out)

@@ -242,6 +242,9 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 		}
 		oamUpdate(&oamMain);
 	}
+
+	consoleSelect(&bottomConsole);
+	consoleClear();
 }
 
 /*

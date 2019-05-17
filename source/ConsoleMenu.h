@@ -22,17 +22,29 @@ struct ConsoleMenuItem {
 	int extra;
 };
 
+struct ConsoleMenuConfig {
+	const char *header;
+	const struct ConsoleMenuItem *items;
+	int size;
+	char **name_out;
+	int *extra_out;
+	int (*func)(char*, int);
+	int startIndex;
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 #include <nds.h>
 
+int console_menu_open_cfg(const struct ConsoleMenuConfig *cfg);
+
 int console_menu_open(
-	char *header, struct ConsoleMenuItem *items, int size,
+	const char *header, const struct ConsoleMenuItem *items, int size,
 	char **name_out, int *extra_out);
 
 int console_menu_open_2(
-	char *header, struct ConsoleMenuItem *items, int size,
+	const char *header, const struct ConsoleMenuItem *items, int size,
 	int *extra_out, int (*func)(char*, int));
 
 #ifdef __cplusplus
@@ -41,9 +53,10 @@ int console_menu_open_2(
 class ConsoleMenu {
 	public:
 	typedef int (*callback_type)(char *str, int extra);
-	ConsoleMenu(char *header, ConsoleMenuItem *items, int size);
+	ConsoleMenu(const char *header, const ConsoleMenuItem *items, int size);
 	void setHoverCallback(callback_type func);
 	void initConsole();
+	void setSelected(int pos);
 	bool openMenu(char **selected_out, int *extra_out);
 
 	private:
@@ -54,8 +67,8 @@ class ConsoleMenu {
 	void movePage(int rel);
 	void scrollName(int rel);
 	PrintConsole console;
-	char *header;
-	ConsoleMenuItem *items;
+	const char *header;
+	const ConsoleMenuItem *items;
 	int itemc;
 	int scroll_x;
 	int scroll_y;

@@ -51,22 +51,21 @@ int string_to_ascii(char *out, const uint8_t *str, int len) {
 	return len;
 }
 
-// FILE: open file handle for the sav
-// slot_out: address of int where the most recent slot index (0 or 1) will be written
 // sections_out: size_t[14] array that will hold the list of section offsets by ID
 int verify_sav(const uint8_t *savedata, size_t *sections_out) {
 	long section_offset = 0;
 	int success = 1;
-	uint16_t saveidx = 0;
+	uint32_t saveidx = UINT32_MAX;
 	const uint16_t NUM_SECTIONS = 14;
 	size_t sections[NUM_SECTIONS];
 	union {
 		uint8_t bytes[32];
 		struct {
 			uint8_t empty[16];
-			uint32_t unknown_a;
+			uint32_t unused;
 			uint16_t section_id;
 			uint16_t checksum;
+			uint32_t signature; // Always 0x08012025
 			uint32_t saveidx;
 		} __attribute__((packed));
 	} footer;
@@ -88,8 +87,9 @@ int verify_sav(const uint8_t *savedata, size_t *sections_out) {
 	};
 	//assert(sizeof(section_sizes) / sizeof(uint16_t) == NUM_SECTIONS);
 	for (int slot = 0; slot < 2; slot++) {
-		uint32_t slot_saveidx = 0;
+		uint32_t slot_saveidx = UINT32_MAX;
 		uint16_t populated_sections = 0;
+		int isAllFF = 1;
 		for (int sectionIdx = 0; sectionIdx < NUM_SECTIONS; sectionIdx++) {
 			const uint8_t *section = NULL;
 			uint32_t checksum = 0;
@@ -100,7 +100,21 @@ int verify_sav(const uint8_t *savedata, size_t *sections_out) {
 				checksum += word;
 				if (word)
 					last_nonzero = wordIdx;
+				if (word != 0xFFFFFFFF) {
+					if (sectionIdx && isAllFF) {
+						iprintf("%04lX Save slot has missing data\n", section_offset);
+						success = 0;
+						break;
+					}
+					isAllFF = 0;
+				}
 			}
+			if (!success) break;
+			// A new game starts with a save data of all FF bytes.
+			// If the player has only used SAVE once, one slot is all FF and the other has data.
+			if (isAllFF)
+				continue;
+
 			checksum = (checksum & 0xFFFF) + (checksum >> 16);
 			checksum &= 0xFFFF;
 			memcpy(footer.bytes, section + 0xFE0, 32);
@@ -135,11 +149,16 @@ int verify_sav(const uint8_t *savedata, size_t *sections_out) {
 			section_offset += 0x1000;
 		}
 		if (!success) break;
-		if (slot == 0 || slot_saveidx > saveidx) {
+
+		if (slot_saveidx != UINT32_MAX && slot_saveidx >= saveidx + 1) {
 			saveidx = slot_saveidx;
 			if (sections_out)
 				memcpy(sections_out, sections, sizeof(sections));
 		}
+	}
+	if (saveidx == UINT32_MAX) {
+		iprintf("Save file appears to be empty.\n");
+		success = 0;
 	}
 	return success;
 }
@@ -332,7 +351,7 @@ uint16_t decode_pkm_encrypted_data(uint8_t *pkm) {
 }
 
 
-void sav_load(char *name, int gameId, uint8_t *savedata) {
+void sav_load(const char *name, int gameId, uint8_t *savedata) {
 	PrintConsole console;
 	videoSetMode(MODE_0_2D);
 	vramSetBankA(VRAM_A_MAIN_BG);

@@ -19,6 +19,7 @@
 #include <fat.h>
 
 #include <stdio.h>
+#include <unistd.h>
 
 #include "ConsoleMenu.h"
 #include "asset_manager.h"
@@ -27,12 +28,115 @@
 #include "slot2.h"
 #include "util.h"
 
+PrintConsole bottomScreen;
+
+// DS only has 4MB RAM. This takes 128K (1/32) of it.
+// If RAM becomes a problem later, we should read on demand instead.
+uint8_t saveBuffer[1024 * 128];
+
+void findRomAndSav(char *romPath_out, char *savPath_out, const char *path_in) {
+	int len;
+
+	// For now, this just looks for ROM+SAV in the same directory with the same base name.
+	strcpy(romPath_out, path_in);
+	strcpy(savPath_out, path_in);
+	len = strlen(path_in);
+	if (len > 4) {
+		char *ext = romPath_out + len - 4;
+		const char *basename;
+
+		// keep the leading slash in basename for simpler concatenation
+		basename = strrchr(path_in, '/');
+		if (!basename)
+			basename = path_in;
+
+		if (!strcmp(ext, ".sav"))
+			// Check for a .gba file in the same directory
+			strcpy(romPath_out + len - 4, ".gba");
+		else if (!strcmp(ext, ".gba")) {
+			// Check for a .sav file in the same directory
+			strcpy(savPath_out + len - 4, ".sav");
+			if (access(savPath_out, F_OK) >= 0)
+				return;
+
+			// EZ-Flash IV and Omega put saves in the SAVER directory.
+			strcpy(savPath_out, "/SAVER");
+			strcat(savPath_out, basename);
+			ext = strrchr(savPath_out, '.');
+			strcpy(ext, ".sav");
+			if (access(savPath_out, F_OK) >= 0)
+				return;
+
+			// GBA Exploader puts saves in the GBA_SAVE directory
+			strcpy(savPath_out, "/GBA_SAVE");
+			strcat(savPath_out, basename);
+			ext = strrchr(savPath_out, '.');
+			strcpy(ext, ".sav");
+		}
+	}
+}
+
+static char savPath[512] = {};
+static char romPath[512] = {};
+
+void openGameFromSD() {
+	for (;;) {
+		int gameId = 0;
+		size_t bytesRead;
+		FILE *fp;
+
+		if (savPath[0] == 0)
+			strcpy(savPath, "/");
+
+		if (!filePicker(savPath, sizeof(savPath)))
+			return;
+
+		consoleSelect(&bottomScreen);
+		findRomAndSav(romPath, savPath, savPath);
+
+		fp = fopen(savPath, "rb");
+		if (!fp) {
+			iprintf("No save file found for:\n%s\n", romPath);
+			wait_for_button();
+			continue;
+		}
+		bytesRead = fread(saveBuffer, 1, 0x20000, fp);
+		fclose(fp);
+
+		// Save files are normally 128K, but the last 16K is unused.
+		// Just in case any tools trim save files, we subtract 16K to get 0x1c000 (112K)
+		if (bytesRead < 0x1c000) {
+			iprintf("This isn't a valid save file.\n");
+			wait_for_button();
+			continue;
+		}
+
+		if (!assets_init_romfile(romPath))
+			assets_init_placeholder();
+
+		sav_load(savPath, gameId, saveBuffer);
+	}
+}
+
+void openGameFromCart() {
+	int gameId;
+
+	gameId = readSlot2Save(saveBuffer);
+	if (gameId < 0) {
+		// Error message was written to the buffer
+		iprintf("%s", saveBuffer);
+		return;
+	}
+
+	const char *name = getGBAGameName(gameId);
+	if (!assets_init_cart())
+		assets_init_placeholder();
+
+	sav_load(name, gameId, saveBuffer);
+
+}
+
 int main(int argc, char **argv) {
-	char path[512];
-	char romPath[512];
-	uint8_t *saveBuffer = NULL;
-	
-	PrintConsole bottomScreen;
 	videoSetModeSub(MODE_0_2D);
 	vramSetBankC(VRAM_C_SUB_BG);
 	consoleInit(&bottomScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
@@ -46,66 +150,27 @@ int main(int argc, char **argv) {
 
 	struct ConsoleMenuItem top_menu[] = {
 		{"Slot-2 GBA Cartridge", 0},
-		{"SAV file on SD card", 1},
-		{"Test", 2},
+		{"SAV file on SD card", 1}
 	};
 
-	// DS only has 4MB RAM. This takes 128K (1/32) of it.
-	// If RAM becomes a problem later, we should read on demand instead.
-	saveBuffer = malloc(1024 * 128);
-
 	for (;;) {
-		int opening_save = 0;
-		int extra;
-		int gameId = -1;
+		int extra = -1;
+		int selecting = 0;
 
-		console_menu_open("Load Pokemon save data from...", top_menu,
+		selecting = console_menu_open("Load Pokemon save data from...", top_menu,
 			ARRAY_LENGTH(top_menu), NULL, &extra);
+		if (!selecting)
+			continue;
 
 		consoleSelect(&bottomScreen);
 		consoleClear();
 
-		if (extra == 0) {
-			// Slot-2 GBA Cart
-			gameId = readSlot2Save(saveBuffer);
-			if (gameId < 0) {
-				iprintf("%s", saveBuffer);
-			} else {
-				const char *name = getGBAGameName(gameId);
-				strcpy(path, "GBA: ");
-				strcat(path, name);
-				opening_save = 1;
-				if (!assets_init_cart())
-					assets_init_placeholder();
-			}
-		} else if (extra == 1) {
-			// SD card
-			strcpy(path, "/");
-			opening_save = filePicker(path, sizeof(path));
-			if (opening_save) {
-				FILE *fp = fopen(path, "rb");
-				fread(saveBuffer, 1, 0x20000, fp);
-				fclose(fp);
-
-				int len;
-				strcpy(romPath, path);
-				len = strlen(romPath);
-				if (len > 4)
-					strcpy(romPath + len - 4, ".gba");
-				if (!assets_init_romfile(romPath))
-					assets_init_placeholder();
-			}
-		} else if (extra == 2) {
-		}
-
-		if (opening_save) {
-			consoleSelect(&bottomScreen);
-			consoleClear();
-			sav_load(path, gameId, saveBuffer);
-		}
+		if (extra == 0)
+			openGameFromCart();
+		else if (extra == 1)
+			openGameFromSD();
 	}
 
 	// Unreachable
-	free(saveBuffer);
 	return 0;
 }

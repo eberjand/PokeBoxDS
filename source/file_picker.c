@@ -24,6 +24,7 @@
 #include <dirent.h>
 
 #include "ConsoleMenu.h"
+#include "util.h"
 
 #define MAX_CONSOLE_ROWS 24
 #define MAX_CONSOLE_COLS 32
@@ -57,7 +58,7 @@ int print_filename(char *name, int is_dir, int pos) {
 	return skip_newline;
 }
 
-int path_ascend(char *path) {
+int path_ascend(char *path, char **prev_name_out) {
 	char *slash_prev = path;
 	char *slash_cur = path;
 	char *pos = path;
@@ -73,47 +74,47 @@ int path_ascend(char *path) {
 			slash_cur = pos;
 		}
 	}
+	pos[1] = 0;
 	// Ignore the trailing slash, use the second-to-last one instead
-	if (slash_cur + 1 == pos)
+	if (slash_cur + 1 == pos) {
 		slash_cur = slash_prev;
+	} else {
+		strcat(slash_cur, "/");
+		pos++;
+	}
 
 	// If ascending to root directory, keep the / and clear the rest
-	if (slash_cur == path)
+	if (slash_cur == path) {
 		slash_cur++;
+		// Shift the previous directory name up
+		for (; pos >= slash_cur; pos--) {
+			pos[1] = pos[0];
+		}
+	}
 
 	// Ascend by truncating at the last path separator
 	*slash_cur = 0;
-	return 1;
-}
-
-int path_ascend_alt(char *path) {
-	char *sep = strrchr(path, '/');
-
-	if (sep == NULL || !strcmp(path, "/"))
-		// Can't ascend
-		return 0;
-
-	// When ascending to root, keep the slash
-	if (sep == path) {
-		path[1] = 0;
-	} else if (sep != NULL) {
-		*sep = 0;
-	}
-
+	if (prev_name_out)
+		*prev_name_out = slash_cur + 1;
 	return 1;
 }
 
 int path_descend(char *path, char *adding, int path_max) {
+	int path_len;
+
 	// Handle the special directory entries
 	if (!strcmp(adding, ".") || !strcmp(adding, "./"))
 		return 1;
 	if (!strcmp(adding, "..") || !strcmp(adding, "../"))
-		return path_ascend(path);
+		return path_ascend(path, NULL);
 
 	// Don't open anything that exceeds the pwd buffer
 	// The +2 accounts for the "/" separator and terminating NUL
-	if (strlen(path) + strlen(adding) + 2 > path_max)
+	path_len = strlen(path);
+	if (path_len + strlen(adding) + 2 > path_max)
 		return 0;
+	if (path[path_len - 1] != '/')
+		strcat(path, "/");
 	strcat(path, adding);
 	return 1;
 }
@@ -128,8 +129,17 @@ int filePicker(char *path, size_t path_max) {
 	int DIRENTS_MAX = 128;
 	int selected = 0;
 	size_t NAME_LIMIT = sizeof(((struct dirent*)0)->d_name); // 256
+	char *prevSelected = NULL;
+	struct stat statbuf;
 
 	dirents = malloc(DIRENTS_MAX * NAME_LIMIT);
+
+	stat(path, &statbuf);
+	if ((statbuf.st_mode & S_IFMT) != S_IFDIR) {
+		prevSelected = strrchr(path, '/');
+		if (prevSelected)
+			*(prevSelected++) = 0;
+	}
 
 	for (;;) {
 		DIR *pdir;
@@ -137,6 +147,7 @@ int filePicker(char *path, size_t path_max) {
 		int num_files = 0;
 		struct ConsoleMenuItem *menu_items;
 		char *next_name = dirents;
+		selected = 0;
 
 		pdir = opendir(path);
 
@@ -151,7 +162,7 @@ int filePicker(char *path, size_t path_max) {
 			size_t name_len;
 			int is_dir;
 
-			if (!strcmp(pent->d_name, "."))
+			if (pent->d_name[0] == '.')
 				continue;
 			if (num_files >= DIRENTS_MAX)
 				break;
@@ -175,9 +186,29 @@ int filePicker(char *path, size_t path_max) {
 		}
 		closedir(pdir);
 		qsort(menu_items, num_files, sizeof(*menu_items), &comparator);
+
+		if (prevSelected) {
+			for (int i = 0; i < num_files; i++) {
+				if (!strcmp(prevSelected, menu_items[i].str)) {
+					selected = i;
+					break;
+				}
+			}
+		}
+		prevSelected = NULL;
+
 		char *sel_name = NULL;
 		int sel_dir = 0;
-		int opened = console_menu_open(path, menu_items, num_files, &sel_name, &sel_dir);
+		struct ConsoleMenuConfig menuConfig = {
+			.header = path,
+			.items = menu_items,
+			.size = num_files,
+			.name_out = &sel_name,
+			.extra_out = &sel_dir,
+			.startIndex = selected
+		};
+
+		int opened = console_menu_open_cfg(&menuConfig);
 		free(menu_items);
 		if (opened) {
 			if (!path_descend(path, sel_name, path_max)) {
@@ -188,7 +219,7 @@ int filePicker(char *path, size_t path_max) {
 				break;
 			}
 		} else {
-			if (!path_ascend(path))
+			if (!path_ascend(path, &prevSelected))
 				break;
 		}
 	}
