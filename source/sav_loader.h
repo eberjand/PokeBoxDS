@@ -55,7 +55,7 @@ union pkm_t {
 	} __attribute__((packed));
 };
 
-int string_to_ascii(char *out, const uint8_t *str, int len);
+int decode_gen3_string(char *out, const uint8_t *str, int len, uint16_t lang);
 int pkm_is_shiny(const union pkm_t *pkm);
 uint16_t pkm_displayed_species(const union pkm_t *pkm);
 int print_pokemon_details(const union pkm_t *pkm);

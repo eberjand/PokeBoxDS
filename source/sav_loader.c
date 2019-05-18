@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "ConsoleMenu.h"
+#include "console_helper.h"
 #include "box_console.h"
 #include "box_gui.h"
 #include "pokemon_strings.h"
@@ -32,23 +33,102 @@
  * https://bulbapedia.bulbagarden.net/wiki/Character_encoding_in_Generation_III
  */
 
-int string_to_ascii(char *out, const uint8_t *str, int len) {
-	const uint8_t map[] =
-		" ..............................."
-		"................................"
-		"................................"
-		"................................"
-		"................................"
-		".0123456789!?.-....''...,./ABCDE"
-		"FGHIJKLMNOPQRSTUVWXYZabcdefghijk"
-		"lmnopqrstuvwxyz................\0";
-	for (int i = 0; i < len; i++) {
-		uint8_t c = map[(uint8_t) str[i]];
-		out[i] = c;
-		if (!c)
-			return i;
+// Look at gfx/font.png to see which glyph these character mappings correspond to.
+// My custom 1-byte charset is a superset of printable ascii with
+// Japanese Katakana and some other glyphs added. Note that there's not enough
+// space for Hiragana, so all Hiragana appears as the corresponding Katakana.
+static const uint8_t charmap_latin[] = {
+' ',  0,    0,    0,    0x80, 0,    0x90, 0,    0,    0,    0,    0,    0,    0,    0,    0,
+0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0x82, 0,    0,    0,    0,
+0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    '&',  '+',  0,
+0,    0,    0,    0,    0,    '=',  ';',  0,    0,    0,    0,    0,    0,    0,    0,    0,
+0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+0,    0x09, 0x0a, 0x14, 0x15, 0x16, 0x17, 0,    0,    0,    0,    '%',  '(',  ')',  0,    0,
+0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+0,    0,    0,    0,    0,    0,    0,    0,    0,    0x08, 0x09, 0x0b, 0x0a, 0,    0,    0,
+0,    0,    0,    0,    '<',  '>',  0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+0,    '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  '!',  '?',  '.',  '-',  0xf1,
+0x07, 0x08, '"',  '`',  '\'', 0x0b, 0x0c, 0xf9, ',',  0xfd, '/',  'A',  'B',  'C',  'D',  'E',
+'F',  'G',  'H',  'I',  'J',  'K',  'L',  'M',  'N',  'O',  'P',  'Q',  'R',  'S',  'T',  'U',
+'V',  'W',  'X',  'Y',  'Z',  'a',  'b',  'c',  'd',  'e',  'f',  'g',  'h',  'i',  'j',  'k',
+'l',  'm',  'n',  'o',  'p',  'q',  'r',  's',  't',  'u',  'v',  'w',  'x',  'y',  'z',  0x10,
+':',  0x8e, 0x94, 0x9a, 0x84, 0x94, 0x9a, 0,    0,    0,    0,    0,    0,    0,    0,    0};
+
+static const uint8_t charmap_jp[] = {
+' ',  0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE,
+0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE,
+0xBF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE,
+0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
+0xDF, 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE,
+0xEF, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE,
+0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE,
+0xBF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE,
+0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
+0xDF, 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE,
+0xEF, '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  '!',  '?',  0xF0, '-',  0xF1,
+0x07, 0xF2, 0xF3, 0xF4, 0xF5, 0x0B, 0x0C, 0xF8, ',',  0xFD, '/',  'A',  'B',  'C',  'D',  'E',
+'F',  'G',  'H',  'I',  'J',  'K',  'L',  'M',  'N',  'O',  'P',  'Q',  'R',  'S',  'T',  'U',
+'V',  'W',  'X',  'Y',  'Z',  'a',  'b',  'c',  'd',  'e',  'f',  'g',  'h',  'i',  'j',  'k',
+'l',  'm',  'n',  'o',  'p',  'q',  'r',  's',  't',  'u',  'v',  'w',  'x',  'y',  'z',  0x10,
+':',  0x8e, 0x94, 0x9a, 0x84, 0x94, 0x9a, 0,    0,    0,    0,    0,    0,    0,    0,    0};
+
+// This conversion is for arbitrary names that we don't know the language of.
+// It's a "good enough" mapping that pretty much covers any valid nickname.
+// There are just a few quirks:
+//   * The Japanese brackets (bytes B1-B4 ingame) will appear as double/single quotes
+//   * The French double angle quotes (bytes B1-B2 ingame) will appear as double ticks
+//   * The Japanese period ("kuten" or "maru") will appear as the latin period
+static const uint8_t charmap_mixed[] = {
+' ',  0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE,
+0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE,
+0xBF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE,
+0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
+0xDF, 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE,
+0xEF, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE,
+0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE,
+0xBF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE,
+0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
+0xDF, 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE,
+0xEF, '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  '!',  '?',  '.',  '-',  0xf1,
+0x07, 0x08, '"',  '`',  '\'', 0x0b, 0x0c, 0xf9, ',',  0xfd, '/',  'A',  'B',  'C',  'D',  'E',
+'F',  'G',  'H',  'I',  'J',  'K',  'L',  'M',  'N',  'O',  'P',  'Q',  'R',  'S',  'T',  'U',
+'V',  'W',  'X',  'Y',  'Z',  'a',  'b',  'c',  'd',  'e',  'f',  'g',  'h',  'i',  'j',  'k',
+'l',  'm',  'n',  'o',  'p',  'q',  'r',  's',  't',  'u',  'v',  'w',  'x',  'y',  'z',  0x10,
+':',  0x8e, 0x94, 0x9a, 0x84, 0x94, 0x9a, 0,    0,    0,    0,    0,    0,    0,    0,    0};
+
+#define LANG_JAPANESE 0x201
+#define LANG_ENGLISH 0x202
+#define LANG_FRENCH 0x203
+#define LANG_ITALIAN 0x204
+#define LANG_GERMAN 0x205
+#define LANG_SPANISH 0x207
+int decode_gen3_string(char *out, const uint8_t *str, int len, uint16_t lang) {
+	const uint8_t *map;
+	if (lang == 0x201)
+		map = charmap_jp;
+	else if (lang >= 0x202 && lang <= 0x207 && lang != 0x206)
+		map = charmap_latin;
+	else
+		map = charmap_mixed;
+
+	int i;
+	for (i = 0; i < len; i++) {
+		uint8_t c = (uint8_t) str[i];
+		if (c == 0xFF)
+			break;
+		// Only French has double angle quotes in place of double tickmark quotes
+		if (lang == LANG_FRENCH && (c == 0xB1 || c == 0xB2))
+			c = 0xFA + (c - 0xB1);
+		else
+			c = map[c];
+		if (c)
+			out[i] = c;
+		else
+			out[i] = '.';
 	}
-	return len;
+	out[i] = 0;
+	return i;
 }
 
 // sections_out: size_t[14] array that will hold the list of section offsets by ID
@@ -196,7 +276,7 @@ void print_trainer_info(uint8_t *savedata, size_t section_offset) {
 	iprintf("Game: %s\n",
 		(gameid == 0) ? "Ruby/Sapphire" :
 		(gameid == 1) ? "FireRed/LeafGreen" : "Emerald");
-	string_to_ascii(curString, buf, 7);
+	decode_gen3_string(curString, buf, 7, 0);
 	iprintf("Name: %s\n", curString);
 	iprintf("Gender: %s\n", buf[0x8] ? "F" : "M");
 	iprintf("Trainer ID: %5d\n", (int) GET16(buf, 0xA));
@@ -216,7 +296,7 @@ int pkm_is_shiny(const union pkm_t *pkm) {
 #define SPECIES_UNOWN_A 201
 #define SPECIES_UNOWN_B 413
 #define SPECIES_EGG 412
-#define SPECIES_MAX 439 // Also the Unown for Question Mark
+#define SPECIES_MAX 439 // The last valid species is also Unown's Question Mark form
 uint16_t pkm_displayed_species(const union pkm_t *pkm) {
 	uint16_t species = pkm->species;
 	uint32_t personality = pkm->personality;
@@ -240,8 +320,8 @@ int print_pokemon_details(const union pkm_t *pkm) {
 	char nickname[12];
 	char trainer[12];
 
-	nickname[string_to_ascii(nickname, pkm->nickname, 10)] = 0;
-	trainer[string_to_ascii(trainer,  pkm->trainerName, 7)] = 0;
+	nickname[decode_gen3_string(nickname, pkm->nickname, 10, pkm->language)] = 0;
+	trainer[decode_gen3_string(trainer, pkm->trainerName, 7, pkm->language)] = 0;
 	uint16_t pokedex_no = get_pokedex_number(pkm->species);
 	if (pkm->species == 0) {
 		iprintf("  0              (Empty Space)\n");
@@ -352,11 +432,10 @@ uint16_t decode_pkm_encrypted_data(uint8_t *pkm) {
 
 
 void sav_load(const char *name, int gameId, uint8_t *savedata) {
-	PrintConsole console;
 	videoSetMode(MODE_0_2D);
 	vramSetBankA(VRAM_A_MAIN_BG);
-	consoleInit(&console, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
-	consoleSelect(&console);
+	initConsoles();
+	selectTopConsole();
 
 	size_t sections[14];
 	uint32_t key;
@@ -384,7 +463,7 @@ void sav_load(const char *name, int gameId, uint8_t *savedata) {
 		if (extra == 0) {
 			open_boxes_gui(savedata, sections);
 		} else if (extra == 1) {
-			consoleSelect(&console);
+			selectTopConsole();
 			consoleClear();
 			print_trainer_info(savedata, sections[0]);
 			wait_for_button();

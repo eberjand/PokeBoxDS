@@ -22,13 +22,12 @@
 #include <unistd.h>
 
 #include "ConsoleMenu.h"
+#include "console_helper.h"
 #include "asset_manager.h"
 #include "file_picker.h"
 #include "sav_loader.h"
 #include "slot2.h"
 #include "util.h"
-
-PrintConsole bottomScreen;
 
 // DS only has 4MB RAM. This takes 128K (1/32) of it.
 // If RAM becomes a problem later, we should read on demand instead.
@@ -46,9 +45,9 @@ void findRomAndSav(char *romPath_out, char *savPath_out, const char *path_in) {
 		const char *basename;
 
 		// keep the leading slash in basename for simpler concatenation
-		basename = strrchr(path_in, '/');
+		basename = strrchr(romPath_out, '/');
 		if (!basename)
-			basename = path_in;
+			basename = romPath_out;
 
 		if (!strcmp(ext, ".sav"))
 			// Check for a .gba file in the same directory
@@ -85,14 +84,14 @@ void openGameFromSD() {
 		size_t bytesRead;
 		FILE *fp;
 
-		if (savPath[0] == 0)
-			strcpy(savPath, "/");
+		if (romPath[0] == 0)
+			strcpy(romPath, "/");
 
-		if (!filePicker(savPath, sizeof(savPath)))
+		if (!filePicker(romPath, sizeof(romPath)))
 			return;
 
-		consoleSelect(&bottomScreen);
-		findRomAndSav(romPath, savPath, savPath);
+		selectBottomConsole();
+		findRomAndSav(romPath, savPath, romPath);
 
 		fp = fopen(savPath, "rb");
 		if (!fp) {
@@ -137,11 +136,13 @@ void openGameFromCart() {
 }
 
 int main(int argc, char **argv) {
+	videoSetMode(MODE_0_2D);
 	videoSetModeSub(MODE_0_2D);
+	vramSetBankA(VRAM_A_MAIN_BG);
 	vramSetBankC(VRAM_C_SUB_BG);
-	consoleInit(&bottomScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
 
-	consoleSelect(&bottomScreen);
+	initConsoles();
+	selectBottomConsole();
 
 	if (!fatInitDefault()) {
 		iprintf("fatInitDefault failure\n");
@@ -150,7 +151,7 @@ int main(int argc, char **argv) {
 
 	struct ConsoleMenuItem top_menu[] = {
 		{"Slot-2 GBA Cartridge", 0},
-		{"SAV file on SD card", 1}
+		{"ROM/SAV file on SD card", 1}
 	};
 
 	for (;;) {
@@ -162,7 +163,7 @@ int main(int argc, char **argv) {
 		if (!selecting)
 			continue;
 
-		consoleSelect(&bottomScreen);
+		selectBottomConsole();
 		consoleClear();
 
 		if (extra == 0)

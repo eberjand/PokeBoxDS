@@ -134,11 +134,11 @@ int filePicker(char *path, size_t path_max) {
 
 	dirents = malloc(DIRENTS_MAX * NAME_LIMIT);
 
+	// If given a file path, start at its containing directory and keep the
+	// file's basename for selecting the cursor's start position
 	stat(path, &statbuf);
 	if ((statbuf.st_mode & S_IFMT) != S_IFDIR) {
-		prevSelected = strrchr(path, '/');
-		if (prevSelected)
-			*(prevSelected++) = 0;
+		path_ascend(path, &prevSelected);
 	}
 
 	for (;;) {
@@ -209,6 +209,7 @@ int filePicker(char *path, size_t path_max) {
 		};
 
 		int opened = console_menu_open_cfg(&menuConfig);
+		selected = 0;
 		free(menu_items);
 		if (opened) {
 			if (!path_descend(path, sel_name, path_max)) {

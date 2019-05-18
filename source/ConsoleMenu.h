@@ -66,7 +66,6 @@ class ConsoleMenu {
 	void moveCursor(int rel);
 	void movePage(int rel);
 	void scrollName(int rel);
-	PrintConsole console;
 	const char *header;
 	const ConsoleMenuItem *items;
 	int itemc;

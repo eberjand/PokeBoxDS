@@ -22,11 +22,9 @@
 #include "util.h"
 
 #include "asset_manager.h"
+#include "console_helper.h"
 #include "cursor.h"
 #include "sav_loader.h"
-
-static PrintConsole topConsole;
-static PrintConsole bottomConsole;
 
 int activeSprite = 0;
 
@@ -35,11 +33,11 @@ int activeSprite = 0;
 uint8_t frontSpriteData[4096];
 
 void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
-	consoleSelect(&bottomConsole);
+	selectBottomConsole();
 	consoleClear();
 
 	if (pkm->species == 0) {
-		consoleSelect(&topConsole);
+		selectTopConsole();
 		iprintf("\x1b[0;0H%-10s\n", "");
 		oamMain.oamMemory[32].attribute[0] = 0;
 		oamMain.oamMemory[32].attribute[1] = 0;
@@ -59,11 +57,11 @@ void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 	} else if (species == 412) {
 		strcpy(nickname, "EGG");
 	} else {
-		string_to_ascii(nickname, pkm->nickname, 10);
+		decode_gen3_string(nickname, pkm->nickname, 10, pkm->language);
 		nickname[10] = 0;
 	}
 
-	consoleSelect(&topConsole);
+	selectTopConsole();
 	iprintf("\x1b[0;0H%-10s\n", nickname);
 
 	uint8_t palette[32];
@@ -76,14 +74,6 @@ void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 	oamMain.oamMemory[32].palette = 4 + activeSprite;
 	oamMain.oamMemory[32].gfxIndex = 8 * 32 + activeSprite * 16;
 	activeSprite ^= 1;
-
-	consoleSelect(&topConsole);
-}
-
-void display_box_name(const char *name) {
-	// Box sprites start at X=104 (after 13 8px tiles)
-	// Box sprites start at Y=64 (after 8 8px tiles) so display on the line above
-	iprintf("\x1b[7;13H%-8s", name);
 }
 
 void display_cursor() {
@@ -104,8 +94,13 @@ void decode_box(uint8_t *box_data, uint16_t *checksums) {
 	}
 }
 
-int display_box(uint8_t *box_data, uint16_t *checksums) {
+int display_box(uint8_t *box_data, uint16_t *checksums, char *name) {
 	int obj_idx = 0;
+
+	// Box sprites start at X=104 (after 13 8px tiles)
+	// Box sprites start at Y=64 (after 8 8px tiles) so display on the line above
+	selectTopConsole();
+	iprintf("\x1b[7;13H%-8s", name);
 
 	for (int i = 0; i < 30; i++) {
 		union pkm_t *pkm = (union pkm_t*) (box_data + i * 80);
@@ -148,12 +143,8 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	vramSetBankB(VRAM_B_MAIN_SPRITE);
 	vramSetBankC(VRAM_C_SUB_BG);
 
-	consoleInit(&topConsole, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
-	consoleInit(&bottomConsole, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
-	consoleSelect(&bottomConsole);
-	consoleClear();
-	consoleSelect(&topConsole);
-	consoleClear();
+	initConsoles();
+	clearConsoles();
 
 	uint8_t box_data[BOX_SIZE_BYTES];
 	uint16_t checksums[30];
@@ -167,7 +158,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	box_name = box_name_buffer;
 	// Box names can be up to 8 characters and always include a 0xFF terminator for 9 bytes
 	for (int i = 0; i < NUM_BOXES; i++, box_name += 9) {
-		string_to_ascii(box_name, (uint8_t*) box_name, 9);
+		decode_gen3_string(box_name, (uint8_t*) box_name, 9, 0);
 		box_names[i] = box_name;
 	}
 
@@ -184,8 +175,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	// Initial display
 	display_cursor();
 	decode_box(box_data, checksums);
-	display_box(box_data, checksums);
-	display_box_name(box_names[active_box]);
+	display_box(box_data, checksums, box_names[active_box]);
 	info_display_update((union pkm_t*) box_data + cur_poke, checksums[cur_poke]);
 	oamUpdate(&oamMain);
 	keysSetRepeat(20, 10);
@@ -232,8 +222,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 				active_box = 0;
 			load_box_savedata(box_data, savedata, sections, active_box);
 			decode_box(box_data, checksums);
-			display_box(box_data, checksums);
-			display_box_name(box_names[active_box]);
+			display_box(box_data, checksums, box_names[active_box]);
 			cursor_moved = 1;
 		}
 		if (cursor_moved) {
@@ -243,8 +232,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 		oamUpdate(&oamMain);
 	}
 
-	consoleSelect(&bottomConsole);
-	consoleClear();
+	clearConsoles();
 }
 
 /*

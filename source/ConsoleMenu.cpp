@@ -21,6 +21,8 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "console_helper.h"
 }
 
 #include "ConsoleMenu.h"
@@ -75,8 +77,8 @@ void ConsoleMenu::setHoverCallback(ConsoleMenu::callback_type func) {
 void ConsoleMenu::initConsole() {
 	videoSetMode(MODE_0_2D);
 	vramSetBankA(VRAM_A_MAIN_BG);
-	consoleInit(&this->console, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
-	consoleSelect(&this->console);
+	initConsoles();
+	selectTopConsole();
 }
 
 void ConsoleMenu::setSelected(int pos) {
@@ -158,7 +160,7 @@ void ConsoleMenu::updateCursor() {
 	if (callback) {
 		const ConsoleMenuItem *item = items + cursor_pos + scroll_y;
 		callback(item->str, item->extra);
-		consoleSelect(&console);
+		selectTopConsole();
 	}
 }
 
