@@ -29,8 +29,8 @@
 int activeSprite = 0;
 
 // Each sprite is 2048 bytes
-// Need to allocate enough space for two sprites because of Deoxys
-uint8_t frontSpriteData[4096];
+// Need to allocate enough space for 4 sprites because of Castform
+uint8_t frontSpriteData[8192];
 
 void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 	selectBottomConsole();
@@ -78,8 +78,8 @@ void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 
 void display_cursor() {
 	oamInit(&oamMain, SpriteMapping_1D_128, false);
-	oamMain.oamMemory[0].attribute[0] = OBJ_Y(64) | ATTR0_COLOR_16;
-	oamMain.oamMemory[0].attribute[1] = OBJ_X(104) | ATTR1_SIZE_32;
+	oamMain.oamMemory[0].attribute[0] = OBJ_Y(60) | ATTR0_COLOR_16;
+	oamMain.oamMemory[0].attribute[1] = OBJ_X(100) | ATTR1_SIZE_32;
 	oamMain.oamMemory[0].palette = 0;
 	oamMain.oamMemory[0].gfxIndex = 0;
 	dmaCopy(cursorTiles, SPRITE_GFX, sizeof(cursorTiles));
@@ -94,13 +94,31 @@ void decode_box(uint8_t *box_data, uint16_t *checksums) {
 	}
 }
 
-int display_box(uint8_t *box_data, uint16_t *checksums, char *name) {
+int display_box(uint8_t *box_data, uint16_t *checksums, char *name, int wallpaper) {
 	int obj_idx = 0;
 
-	// Box sprites start at X=104 (after 13 8px tiles)
-	// Box sprites start at Y=64 (after 8 8px tiles) so display on the line above
 	selectTopConsole();
-	iprintf("\x1b[7;13H%-8s", name);
+	iprintf("\x1b[7;16H\x1b[30;0m%-8s\x1b[39;0m", name);
+
+	// Planned BG layers: 0=text, 1=statusinfo, 2=wallpaper, 3=background
+	memset(BG_MAP_RAM(1), 0, 2048);
+	if (loadWallpaper(wallpaper)) {
+		bgInit(2, BgType_Text4bpp, BgSize_T_256x256, 1, 2);
+		int wallpaperPalOffset = 4;
+		memcpy(BG_TILE_RAM(2), wallpaperTiles, sizeof(wallpaperTiles));
+		memcpy((uint8_t*) BG_PALETTE + 32 * wallpaperPalOffset,
+			wallpaperPal, sizeof(wallpaperPal));
+		for (int rowIdx = 0; rowIdx < 18; rowIdx++) {
+			for (int colIdx = 0; colIdx < 20; colIdx++) {
+				uint16_t tspec = wallpaperTilemap[rowIdx * 20 + colIdx];
+				uint8_t pal = tspec >> 12;
+				if (pal)
+					pal += wallpaperPalOffset - 1;
+				tspec = (pal << 12) | (tspec & 0xFFF);
+				BG_MAP_RAM(1)[(rowIdx + 6) * 32 + colIdx + 12] = tspec;
+			}
+		}
+	}
 
 	for (int i = 0; i < 30; i++) {
 		union pkm_t *pkm = (union pkm_t*) (box_data + i * 80);
@@ -115,8 +133,8 @@ int display_box(uint8_t *box_data, uint16_t *checksums, char *name) {
 		if (checksums && checksums[i] != pkm->checksum)
 			species = 412; // Egg icon for BAD EGG
 
-		oamMain.oamMemory[obj_idx + 2].attribute[0] = OBJ_Y((i / 6) * 24 + 64) | ATTR0_COLOR_16;
-		oamMain.oamMemory[obj_idx + 2].attribute[1] = OBJ_X((i % 6) * 24 + 104) | ATTR1_SIZE_32;
+		oamMain.oamMemory[obj_idx + 2].attribute[0] = OBJ_Y((i / 6) * 24 + 60) | ATTR0_COLOR_16;
+		oamMain.oamMemory[obj_idx + 2].attribute[1] = OBJ_X((i % 6) * 24 + 100) | ATTR1_SIZE_32;
 		oamMain.oamMemory[obj_idx + 2].palette = getIconPaletteIdx(species);
 		oamMain.oamMemory[obj_idx + 2].gfxIndex = (i + 2) * 8;
 		// Each 32x32@4bpp sprite is 512 bytes.
@@ -154,8 +172,11 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	char box_name_buffer[9 * NUM_BOXES];
 	char *box_names[NUM_BOXES];
 	char *box_name;
+	uint8_t *box_wallpapers;
 	memcpy(box_name_buffer, savedata + sections[13] + 0x744, sizeof(box_name_buffer));
 	box_name = box_name_buffer;
+	box_wallpapers = savedata + sections[13] + 0x7C2;
+
 	// Box names can be up to 8 characters and always include a 0xFF terminator for 9 bytes
 	for (int i = 0; i < NUM_BOXES; i++, box_name += 9) {
 		decode_gen3_string(box_name, (uint8_t*) box_name, 9, 0);
@@ -175,7 +196,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	// Initial display
 	display_cursor();
 	decode_box(box_data, checksums);
-	display_box(box_data, checksums, box_names[active_box]);
+	display_box(box_data, checksums, box_names[active_box], (int) box_wallpapers[active_box]);
 	info_display_update((union pkm_t*) box_data + cur_poke, checksums[cur_poke]);
 	oamUpdate(&oamMain);
 	keysSetRepeat(20, 10);
@@ -204,7 +225,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 				cursor_x = 5;
 			else if (cursor_x > 5)
 				cursor_x = 0;
-			oamMain.oamMemory[0].x = cursor_x * 24 + 104;
+			oamMain.oamMemory[0].x = cursor_x * 24 + 100;
 			cursor_moved = 1;
 		} else if (keys & (KEY_UP | KEY_DOWN)) {
 			cursor_y += (keys & KEY_UP) ? -1 : 1;
@@ -212,7 +233,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 				cursor_y = 4;
 			else if (cursor_y > 4)
 				cursor_y = 0;
-			oamMain.oamMemory[0].y = cursor_y * 24 + 64;
+			oamMain.oamMemory[0].y = cursor_y * 24 + 60;
 			cursor_moved = 1;
 		} else if (keys & (KEY_L | KEY_R)) {
 			active_box += (keys & KEY_L) ? -1 : 1;
@@ -222,7 +243,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 				active_box = 0;
 			load_box_savedata(box_data, savedata, sections, active_box);
 			decode_box(box_data, checksums);
-			display_box(box_data, checksums, box_names[active_box]);
+			display_box(box_data, checksums, box_names[active_box], (int) box_wallpapers[active_box]);
 			cursor_moved = 1;
 		}
 		if (cursor_moved) {

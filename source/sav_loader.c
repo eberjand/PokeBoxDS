@@ -133,7 +133,6 @@ int decode_gen3_string(char *out, const uint8_t *str, int len, uint16_t lang) {
 
 // sections_out: size_t[14] array that will hold the list of section offsets by ID
 int verify_sav(const uint8_t *savedata, size_t *sections_out) {
-	long section_offset = 0;
 	int success = 1;
 	uint32_t saveidx = UINT32_MAX;
 	const uint16_t NUM_SECTIONS = 14;
@@ -174,7 +173,9 @@ int verify_sav(const uint8_t *savedata, size_t *sections_out) {
 			const uint8_t *section = NULL;
 			uint32_t checksum = 0;
 			size_t last_nonzero = 0;
-			section = savedata + (slot * NUM_SECTIONS + sectionIdx) * 0x1000;
+			long section_offset = 0;
+			section_offset = (slot * NUM_SECTIONS + sectionIdx) * 0x1000;
+			section = savedata + section_offset;
 			for (long wordIdx = 0; wordIdx < 0xFE0 / 4; wordIdx++) {
 				uint32_t word = GET32(section, wordIdx * 4);
 				checksum += word;
@@ -226,7 +227,6 @@ int verify_sav(const uint8_t *savedata, size_t *sections_out) {
 			populated_sections |= 1 << footer.section_id;
 			slot_saveidx = footer.saveidx;
 			sections[footer.section_id] = section_offset;
-			section_offset += 0x1000;
 		}
 		if (!success) break;
 
@@ -236,7 +236,7 @@ int verify_sav(const uint8_t *savedata, size_t *sections_out) {
 				memcpy(sections_out, sections, sizeof(sections));
 		}
 	}
-	if (saveidx == UINT32_MAX) {
+	if (saveidx == UINT32_MAX && success) {
 		iprintf("Save file appears to be empty.\n");
 		success = 0;
 	}

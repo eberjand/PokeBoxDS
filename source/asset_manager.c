@@ -32,7 +32,7 @@
 
 #define ROM_OFFSET_MASK 0xFFFFFF
 
-uint16_t frontSpriteCompressed[2048];
+uint16_t tileGfxCompressed[4096];
 
 typedef struct assets_handler {
 	int assetSource;
@@ -45,11 +45,17 @@ typedef struct assets_handler {
 	uint16_t **frontSpriteTable;
 	uint16_t **frontPaletteTable;
 	uint16_t **shinyPaletteTable;
+	uint16_t **wallpaperTable;
+	int game;
+	int language;
 	FILE *fp;
 	uint8_t buffer[1024];
 	uint8_t palettesData[3 * 32];
 } assets_handler_t;
 static assets_handler_t handler;
+
+#define IS_RUBY_SAPPHIRE ((handler.game >> 1) == 0)
+#define IS_FIRERED_LEAFGREEN ((handler.game >> 1) == 1)
 
 // Define the offsets PC icon assets in all known versions of GBA Pokémon
 // Languages: J=Japanese, E=English, F=French, D=German S=Spanish, I=Italian
@@ -58,66 +64,94 @@ struct rom_offsets_t {
 	int rev;
 	void *iconTable;
 	void *frontSpriteTable;
+	void *wallpaperTable;
 };
+// I found most of these offsets by figuring out what data I'm interested in
+// for one ROM, following a pointer from the table to reach data that doesn't
+// include a pointer (not affected by offsets), then searching for a few bytes
+// of that data in every other ROM and then searching for references to that
+// address to find that ROM's table.
+// Note that RSE and FRLG have different full-size/front sprite data.
+// The highest-order "08" byte in all of these points to the GBA cart's memory
+// mapped area. In a dump, an offset like "0x8391a98" is actually at "0x391a98"
 static const struct rom_offsets_t rom_offsets[] = {
 	// Ruby
-	{"AXVJ", 0, (void*) 0x8391a98, (void*) 0x81bcb60},
-	{"AXVE", 0, (void*) 0x83bbd20, (void*) 0x81e8354},
-	{"AXVE", 1, (void*) 0x83bbd3c, (void*) 0x81e836c},
-	{"AXVE", 2, (void*) 0x83bbd3c, (void*) 0x81e836c},
-	{"AXVF", 0, (void*) 0x83c3704, (void*) 0x81f075c},
-	{"AXVF", 1, (void*) 0x83c3704, (void*) 0x81f075c},
-	{"AXVD", 0, (void*) 0x83c7c30, (void*) 0x81f52d0},
-	{"AXVD", 1, (void*) 0x83c7c30, (void*) 0x81f52d0},
-	{"AXVS", 0, (void*) 0x83bfd84, (void*) 0x81ed074},
-	{"AXVS", 1, (void*) 0x83bfd84, (void*) 0x81ed074},
-	{"AXVI", 0, (void*) 0x83bc974, (void*) 0x81e9ff0},
-	{"AXVI", 1, (void*) 0x83bc974, (void*) 0x81e9ff0},
+	{"AXVJ", 0, (void*) 0x8391a98, (void*) 0x81bcb60, (void*) 0x8390e00},
+	{"AXVE", 0, (void*) 0x83bbd20, (void*) 0x81e8354, (void*) 0x83bb0e8},
+	{"AXVE", 1, (void*) 0x83bbd3c, (void*) 0x81e836c, (void*) 0x83bb104},
+	{"AXVE", 2, (void*) 0x83bbd3c, (void*) 0x81e836c, (void*) 0x83bb104},
+	{"AXVF", 0, (void*) 0x83c3704, (void*) 0x81f075c, (void*) 0x83c2acc},
+	{"AXVF", 1, (void*) 0x83c3704, (void*) 0x81f075c, (void*) 0x83c2acc},
+	{"AXVD", 0, (void*) 0x83c7c30, (void*) 0x81f52d0, (void*) 0x83c6ff8},
+	{"AXVD", 1, (void*) 0x83c7c30, (void*) 0x81f52d0, (void*) 0x83c6ff8},
+	{"AXVS", 0, (void*) 0x83bfd84, (void*) 0x81ed074, (void*) 0x83bf14c},
+	{"AXVS", 1, (void*) 0x83bfd84, (void*) 0x81ed074, (void*) 0x83bf14c},
+	{"AXVI", 0, (void*) 0x83bc974, (void*) 0x81e9ff0, (void*) 0x83bbd3c},
+	{"AXVI", 1, (void*) 0x83bc974, (void*) 0x81e9ff0, (void*) 0x83bbd3c},
 
 	// Sapphire
-	{"AXPJ", 0, (void*) 0x8391a7c, (void*) 0x81bcaf0},
-	{"AXPE", 0, (void*) 0x83bbd78, (void*) 0x81e82e4},
-	{"AXPE", 1, (void*) 0x83bbd98, (void*) 0x81e82fc},
-	{"AXPE", 2, (void*) 0x83bbd98, (void*) 0x81e82fc},
-	{"AXPF", 0, (void*) 0x83c3234, (void*) 0x81f06ec},
-	{"AXPF", 1, (void*) 0x83c3234, (void*) 0x81f06ec},
-	{"AXPD", 0, (void*) 0x83c7b9c, (void*) 0x81f5264},
-	{"AXPD", 1, (void*) 0x83c7b9c, (void*) 0x81f5264},
-	{"AXPS", 0, (void*) 0x83bfac0, (void*) 0x81ed004},
-	{"AXPS", 1, (void*) 0x83bfac0, (void*) 0x81ed004},
-	{"AXPI", 0, (void*) 0x83bc618, (void*) 0x81e9f80},
-	{"AXPI", 1, (void*) 0x83bc618, (void*) 0x81e9f80},
+	{"AXPJ", 0, (void*) 0x8391a7c, (void*) 0x81bcaf0, (void*) 0x8390de4},
+	{"AXPE", 0, (void*) 0x83bbd78, (void*) 0x81e82e4, (void*) 0x83bb140},
+	{"AXPE", 1, (void*) 0x83bbd98, (void*) 0x81e82fc, (void*) 0x83bb160},
+	{"AXPE", 2, (void*) 0x83bbd98, (void*) 0x81e82fc, (void*) 0x83bb160},
+	{"AXPF", 0, (void*) 0x83c3234, (void*) 0x81f06ec, (void*) 0x83c25fc},
+	{"AXPF", 1, (void*) 0x83c3234, (void*) 0x81f06ec, (void*) 0x83c25fc},
+	{"AXPD", 0, (void*) 0x83c7b9c, (void*) 0x81f5264, (void*) 0x83c6f64},
+	{"AXPD", 1, (void*) 0x83c7b9c, (void*) 0x81f5264, (void*) 0x83c6f64},
+	{"AXPS", 0, (void*) 0x83bfac0, (void*) 0x81ed004, (void*) 0x83bee88},
+	{"AXPS", 1, (void*) 0x83bfac0, (void*) 0x81ed004, (void*) 0x83bee88},
+	{"AXPI", 0, (void*) 0x83bc618, (void*) 0x81e9f80, (void*) 0x83bb9e0},
+	{"AXPI", 1, (void*) 0x83bc618, (void*) 0x81e9f80, (void*) 0x83bb9e0},
 
 	// FireRed
-	{"BPRJ", 0, (void*) 0x839bca8, (void*) 0x81f4690},
-	{"BPRE", 0, (void*) 0x83d37a0, (void*) 0x82350ac},
-	{"BPRE", 1, (void*) 0x83d3810, (void*) 0x823511c},
-	{"BPRF", 0, (void*) 0x83cd5e0, (void*) 0x822f4b8},
-	{"BPRD", 0, (void*) 0x83d30b4, (void*) 0x8234f7c},
-	{"BPRS", 0, (void*) 0x83ce958, (void*) 0x8230818},
-	{"BPRI", 0, (void*) 0x83cc270, (void*) 0x822e150},
+	{"BPRJ", 0, (void*) 0x839bca8, (void*) 0x81f4690, (void*) 0x839af18},
+	{"BPRE", 0, (void*) 0x83d37a0, (void*) 0x82350ac, (void*) 0x83d2a10},
+	{"BPRE", 1, (void*) 0x83d3810, (void*) 0x823511c, (void*) 0x83d2a80},
+	{"BPRF", 0, (void*) 0x83cd5e0, (void*) 0x822f4b8, (void*) 0x83cc850},
+	{"BPRD", 0, (void*) 0x83d30b4, (void*) 0x8234f7c, (void*) 0x83d2324},
+	{"BPRS", 0, (void*) 0x83ce958, (void*) 0x8230818, (void*) 0x83cdbc8},
+	{"BPRI", 0, (void*) 0x83cc270, (void*) 0x822e150, (void*) 0x83cb4e0},
 
 	// LeafGreen
-	{"BPGJ", 0, (void*) 0x839bb18, (void*) 0x81f466c},
-	{"BPGE", 0, (void*) 0x83d35dc, (void*) 0x8235088},
-	{"BPGE", 1, (void*) 0x83d364c, (void*) 0x82350f8},
-	{"BPGF", 0, (void*) 0x83cd41c, (void*) 0x822f494},
-	{"BPGD", 0, (void*) 0x83d2ef0, (void*) 0x8234f58},
-	{"BPGS", 0, (void*) 0x83ce794, (void*) 0x82307f4},
-	{"BPGI", 0, (void*) 0x83cc0ac, (void*) 0x822e12c},
+	{"BPGJ", 0, (void*) 0x839bb18, (void*) 0x81f466c, (void*) 0x839ad88},
+	{"BPGE", 0, (void*) 0x83d35dc, (void*) 0x8235088, (void*) 0x83d284c},
+	{"BPGE", 1, (void*) 0x83d364c, (void*) 0x82350f8, (void*) 0x83d28bc},
+	{"BPGF", 0, (void*) 0x83cd41c, (void*) 0x822f494, (void*) 0x83cc68c},
+	{"BPGD", 0, (void*) 0x83d2ef0, (void*) 0x8234f58, (void*) 0x83d2160},
+	{"BPGS", 0, (void*) 0x83ce794, (void*) 0x82307f4, (void*) 0x83cda04},
+	{"BPGI", 0, (void*) 0x83cc0ac, (void*) 0x822e12c, (void*) 0x83cb31c},
 
 	// Emerald
-	{"BPEJ", 0, (void*) 0x8556804, (void*) 0x82d4ca8},
-	{"BPEE", 0, (void*) 0x857bca8, (void*) 0x8301418},
-	{"BPEF", 0, (void*) 0x8580020, (void*) 0x8303f48},
-	{"BPED", 0, (void*) 0x858caa8, (void*) 0x8315d88},
-	{"BPES", 0, (void*) 0x857e784, (void*) 0x830767c},
-	{"BPEI", 0, (void*) 0x857838c, (void*) 0x8300ddc},
+	{"BPEJ", 0, (void*) 0x8556804, (void*) 0x82d4ca8, (void*) 0x8551868},
+	{"BPEE", 0, (void*) 0x857bca8, (void*) 0x8301418, (void*) 0x85775b8},
+	{"BPEF", 0, (void*) 0x8580020, (void*) 0x8303f48, (void*) 0x857b930},
+	{"BPED", 0, (void*) 0x858caa8, (void*) 0x8315d88, (void*) 0x85883b8},
+	{"BPES", 0, (void*) 0x857e784, (void*) 0x830767c, (void*) 0x857a094},
+	{"BPEI", 0, (void*) 0x857838c, (void*) 0x8300ddc, (void*) 0x8573c9c},
 };
+static const char *const gamecode_list[] = {
+	"AXV", "AXP", "BPR", "BPG", "BPE"
+};
+static const char language_list[] = "JEFDSI";
 
 static bool getIconOffsets(tGBAHeader *header) {
 	uint32_t gamecode = GET32(header->gamecode, 0);
 
+	handler.game = -1;
+	handler.language = -1;
+	// Check only the first 3 letters of gamecode
+	for (int i = 0; i < ARRAY_LENGTH(gamecode_list); i++) {
+		if ((gamecode & 0xFFFFFF) == ((uint32_t**) gamecode_list)[i][0]) {
+			handler.game = i;
+			break;
+		}
+	}
+	for (int i = 0; i < ARRAY_LENGTH(language_list); i++) {
+		if ((gamecode >> 24) == language_list[i]) {
+			handler.language = i;
+			break;
+		}
+	}
 	for (int i = 0; i < ARRAY_LENGTH(rom_offsets); i++) {
 		const struct rom_offsets_t *table = &rom_offsets[i];
 		if (gamecode == GET32(table->gamecode, 0)) {
@@ -128,6 +162,7 @@ static bool getIconOffsets(tGBAHeader *header) {
 				handler.frontSpriteTable = table->frontSpriteTable;
 				handler.frontPaletteTable = table->frontSpriteTable + 0x2260;
 				handler.shinyPaletteTable = table->frontSpriteTable + 0x3020;
+				handler.wallpaperTable = table->wallpaperTable;
 				return true;
 			}
 		}
@@ -195,6 +230,17 @@ void assets_free() {
 	memset(&handler, 0, sizeof(handler));
 }
 
+uint32_t readRomWord(void *address) {
+	uint32_t out = 0;
+	if (handler.assetSource == ASSET_SOURCE_CART) {
+		out = GET32(address, 0);
+	} else if (handler.assetSource == ASSET_SOURCE_ROMFILE) {
+		fseek(handler.fp, (uint32_t) address & ROM_OFFSET_MASK, SEEK_SET);
+		fread(&out, 4, 1, handler.fp);
+	}
+	return out;
+}
+
 const uint16_t* getIconImage(uint16_t species) {
 	if (handler.assetSource == ASSET_SOURCE_NONE)
 		return (const uint16_t*) unknownIconTiles;
@@ -226,6 +272,49 @@ const uint16_t* getIconPaletteColors(int index) {
 	return (const uint16_t*) (handler.palettesData + index * 32);
 }
 
+int loadWallpaper(int index) {
+	uint32_t tiles, tilemap, pal;
+	if (handler.assetSource == ASSET_SOURCE_NONE)
+		return 0;
+	if (IS_RUBY_SAPPHIRE) {
+		// Ruby and Sapphire have 4 entries, with the second one being unused
+		tiles = readRomWord(handler.wallpaperTable + index * 4);
+		tilemap = readRomWord(handler.wallpaperTable + index * 4 + 2);
+		// Unlike FRLG/E, RS have an all blank palette here first that we skip.
+		pal = readRomWord(handler.wallpaperTable + index * 4 + 3) + 32;
+	} else {
+		tiles = readRomWord(handler.wallpaperTable + index * 3);
+		tilemap = readRomWord(handler.wallpaperTable + index * 3 + 1);
+		pal = readRomWord(handler.wallpaperTable + index * 3 + 2);
+	}
+	if ((readRomWord((void*) tiles) >> 8) > sizeof(wallpaperTiles))
+		return 0;
+	if ((readRomWord((void*) tilemap) >> 8) > sizeof(wallpaperTilemap))
+		return 0;
+
+	// Tiles and tilemap are LZ77 compressed, but palette isn't
+	if (handler.assetSource == ASSET_SOURCE_ROMFILE) {
+		// Read the compressed tile data
+		fseek(handler.fp, tiles & ROM_OFFSET_MASK, SEEK_SET);
+		fread(tileGfxCompressed, 1, sizeof(tileGfxCompressed), handler.fp);
+		swiDecompressLZSSWram(tileGfxCompressed, wallpaperTiles);
+
+		// Read the compressed tile map data
+		fseek(handler.fp, tilemap & ROM_OFFSET_MASK, SEEK_SET);
+		fread(tileGfxCompressed, 1, sizeof(tileGfxCompressed), handler.fp);
+		swiDecompressLZSSWram(tileGfxCompressed, wallpaperTilemap);
+
+		// Read the palette data
+		fseek(handler.fp, pal & ROM_OFFSET_MASK, SEEK_SET);
+		fread(wallpaperPal, 1, sizeof(wallpaperPal), handler.fp);
+	} else {
+		swiDecompressLZSSWram((void*) tiles, wallpaperTiles);
+		swiDecompressLZSSWram((void*) tilemap, wallpaperTilemap);
+		memcpy(wallpaperPal, (void*) pal, sizeof(wallpaperPal));
+	}
+	return 1;
+}
+
 void readFrontImage(uint8_t *tiles_out, uint8_t *palette_out, uint16_t species, int shiny) {
 	uint16_t **paletteTable = (shiny) ? handler.shinyPaletteTable : handler.frontPaletteTable;
 	void *tileAddress = NULL;
@@ -246,15 +335,15 @@ void readFrontImage(uint8_t *tiles_out, uint8_t *palette_out, uint16_t species, 
 		fseek(fp, (long) (paletteTable + species * 2) & ROM_OFFSET_MASK, SEEK_SET);
 		fread(&palAddress, 4, 1, fp);
 		fseek(fp, (long) tileAddress & ROM_OFFSET_MASK, SEEK_SET);
-		fread(frontSpriteCompressed, 1, sizeof(frontSpriteCompressed), fp);
+		fread(tileGfxCompressed, 1, sizeof(tileGfxCompressed), fp);
 		fseek(fp, (long) palAddress & ROM_OFFSET_MASK, SEEK_SET);
 		fread(palCompressed, 1, sizeof(palCompressed), fp);
-		tileAddress = frontSpriteCompressed;
+		tileAddress = tileGfxCompressed;
 		palAddress = palCompressed;
 	}
 
 	// Avoid buffer overflows by checking the extracted size
-	if (tileAddress == NULL || (GET32(tileAddress, 0) >> 8) > 4096)
+	if (tileAddress == NULL || (GET32(tileAddress, 0) >> 8) > 8192)
 		memcpy(tiles_out, unknownFrontTiles, 2048);
 	else
 		swiDecompressLZSSWram(tileAddress, tiles_out);

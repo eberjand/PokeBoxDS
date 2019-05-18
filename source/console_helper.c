@@ -27,8 +27,8 @@ static ConsoleFont customConsoleFont = {
 };
 
 void initConsoles() {
-	consoleInit(&topConsole, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, false);
-	consoleInit(&bottomConsole, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, false);
+	consoleInit(&topConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 0, 1, true, false);
+	consoleInit(&bottomConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 0, 1, false, false);
 	consoleSetFont(&topConsole, &customConsoleFont);
 	consoleSetFont(&bottomConsole, &customConsoleFont);
 }
