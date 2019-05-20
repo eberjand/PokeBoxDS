@@ -24,15 +24,15 @@
 #include "asset_manager.h"
 #include "console_helper.h"
 #include "cursor.h"
-#include "sav_loader.h"
+#include "savedata_gen3.h"
 
-int activeSprite = 0;
+static int activeSprite = 0;
 
 // Each sprite is 2048 bytes
 // Need to allocate enough space for 4 sprites because of Castform
-uint8_t frontSpriteData[8192];
+static uint8_t frontSpriteData[8192];
 
-void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
+static void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 	selectBottomConsole();
 	consoleClear();
 
@@ -76,7 +76,7 @@ void info_display_update(const union pkm_t *pkm, uint16_t checksum) {
 	activeSprite ^= 1;
 }
 
-void display_cursor() {
+static void display_cursor() {
 	oamInit(&oamMain, SpriteMapping_1D_128, false);
 	oamMain.oamMemory[0].attribute[0] = OBJ_Y(60) | ATTR0_COLOR_16;
 	oamMain.oamMemory[0].attribute[1] = OBJ_X(100) | ATTR1_SIZE_32;
@@ -85,7 +85,7 @@ void display_cursor() {
 	dmaCopy(cursorTiles, SPRITE_GFX, sizeof(cursorTiles));
 }
 
-void decode_box(uint8_t *box_data, uint16_t *checksums) {
+static void decode_box(uint8_t *box_data, uint16_t *checksums) {
 	for (int i = 0; i < 30; i++) {
 		union pkm_t *pkm = (union pkm_t*) (box_data + i * 80);
 		uint16_t checksum = decode_pkm_encrypted_data(pkm->bytes);
@@ -94,7 +94,7 @@ void decode_box(uint8_t *box_data, uint16_t *checksums) {
 	}
 }
 
-int display_box(uint8_t *box_data, uint16_t *checksums, char *name, int wallpaper) {
+static int display_box(uint8_t *box_data, uint16_t *checksums, char *name, int wallpaper) {
 	int obj_idx = 0;
 
 	selectTopConsole();
@@ -152,7 +152,7 @@ int display_box(uint8_t *box_data, uint16_t *checksums, char *name, int wallpape
 	return obj_idx;
 }
 
-void open_boxes_gui(uint8_t *savedata, size_t *sections) {
+void open_boxes_gui() {
 	sysSetBusOwners(true, true);
 	swiDelay(10);
 
@@ -173,9 +173,9 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	char *box_names[NUM_BOXES];
 	char *box_name;
 	uint8_t *box_wallpapers;
-	memcpy(box_name_buffer, savedata + sections[13] + 0x744, sizeof(box_name_buffer));
+	memcpy(box_name_buffer, GET_SAVEDATA_SECTION(13) + 0x744, sizeof(box_name_buffer));
 	box_name = box_name_buffer;
-	box_wallpapers = savedata + sections[13] + 0x7C2;
+	box_wallpapers = GET_SAVEDATA_SECTION(13) + 0x7C2;
 
 	// Box names can be up to 8 characters and always include a 0xFF terminator for 9 bytes
 	for (int i = 0; i < NUM_BOXES; i++, box_name += 9) {
@@ -188,7 +188,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 	int cursor_y = 0;
 	int active_box = 0;
 	int cur_poke = 0;
-	active_box = load_box_savedata(box_data, savedata, sections, -1);
+	active_box = load_box_savedata(box_data, -1);
 
 	// Load all Pokemon box icon palettes into VRAM
 	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE, 32 * 3);
@@ -241,7 +241,7 @@ void open_boxes_gui(uint8_t *savedata, size_t *sections) {
 				active_box = 13;
 			else if (active_box > 13)
 				active_box = 0;
-			load_box_savedata(box_data, savedata, sections, active_box);
+			load_box_savedata(box_data, active_box);
 			decode_box(box_data, checksums);
 			display_box(box_data, checksums, box_names[active_box], (int) box_wallpapers[active_box]);
 			cursor_moved = 1;

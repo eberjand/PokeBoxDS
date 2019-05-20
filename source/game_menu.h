@@ -17,4 +17,4 @@
  */
 #pragma once
 
-void open_boxes_gui(void);
+void game_menu_open(const char *filename);

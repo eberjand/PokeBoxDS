@@ -16,7 +16,10 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
-#include <stdlib.h>
 
-const char* getGBAGameName(int gameId);
-int readSlot2Save(uint8_t *out);
+#define LANG_JAPANESE 1
+#define LANG_ENGLISH 2
+#define LANG_FRENCH 3
+#define LANG_ITALIAN 4
+#define LANG_GERMAN 5
+#define LANG_SPANISH 7

@@ -16,7 +16,5 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
-#include <stdint.h>
-#include <stddef.h>
 
-void open_boxes(uint8_t *savedata, size_t *sections);
+void open_boxes(void);

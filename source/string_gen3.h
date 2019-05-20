@@ -16,5 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
+#include <stdint.h>
+#include "languages.h"
 
-void open_boxes_gui(void);
+int decode_gen3_string(char *out, const uint8_t *str, int len, uint16_t lang);

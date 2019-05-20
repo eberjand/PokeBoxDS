@@ -25,13 +25,9 @@
 #include "console_helper.h"
 #include "asset_manager.h"
 #include "file_picker.h"
-#include "sav_loader.h"
-#include "slot2.h"
+#include "game_menu.h"
+#include "savedata_gen3.h"
 #include "util.h"
-
-// DS only has 4MB RAM. This takes 128K (1/32) of it.
-// If RAM becomes a problem later, we should read on demand instead.
-uint8_t saveBuffer[1024 * 128];
 
 void findRomAndSav(char *romPath_out, char *savPath_out, const char *path_in) {
 	int len;
@@ -80,9 +76,8 @@ static char romPath[512] = {};
 
 void openGameFromSD() {
 	for (;;) {
-		int gameId = 0;
-		size_t bytesRead;
 		FILE *fp;
+		int rc;
 
 		if (romPath[0] == 0)
 			strcpy(romPath, "/");
@@ -93,46 +88,47 @@ void openGameFromSD() {
 		selectBottomConsole();
 		findRomAndSav(romPath, savPath, romPath);
 
+		if (!assets_init_romfile(romPath))
+			assets_init_placeholder();
+
 		fp = fopen(savPath, "rb");
 		if (!fp) {
 			iprintf("No save file found for:\n%s\n", romPath);
 			wait_for_button();
 			continue;
 		}
-		bytesRead = fread(saveBuffer, 1, 0x20000, fp);
+		rc = load_savedata(fp);
 		fclose(fp);
-
-		// Save files are normally 128K, but the last 16K is unused.
-		// Just in case any tools trim save files, we subtract 16K to get 0x1c000 (112K)
-		if (bytesRead < 0x1c000) {
-			iprintf("This isn't a valid save file.\n");
+		if (!rc) {
 			wait_for_button();
 			continue;
 		}
 
-		if (!assets_init_romfile(romPath))
-			assets_init_placeholder();
-
-		sav_load(savPath, gameId, saveBuffer);
+		game_menu_open(savPath);
 	}
 }
 
 void openGameFromCart() {
-	int gameId;
-
-	gameId = readSlot2Save(saveBuffer);
-	if (gameId < 0) {
-		// Error message was written to the buffer
-		iprintf("%s", saveBuffer);
+	if (!assets_init_cart()) {
+		if ((int8_t) GBA_HEADER.gamecode[0] <= 0) {
+			iprintf("Error: No GBA cartridge found.\n");
+		} else {
+			iprintf(
+				"Unsupported GBA game cart.\n"
+				"Title: %.12s\n"
+				"Code:  %.4s Rev %d\n",
+				GBA_HEADER.title, GBA_HEADER.gamecode, GBA_HEADER.version);
+		}
+		wait_for_button();
 		return;
 	}
 
-	const char *name = getGBAGameName(gameId);
-	if (!assets_init_cart())
-		assets_init_placeholder();
+	if (!load_savedata(NULL)) {
+		wait_for_button();
+		return;
+	}
 
-	sav_load(name, gameId, saveBuffer);
-
+	game_menu_open(NULL);
 }
 
 int main(int argc, char **argv) {

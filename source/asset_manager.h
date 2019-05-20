@@ -17,10 +17,15 @@
  */
 #include <stdio.h>
 #include <stdint.h>
+#include "languages.h"
 
-uint8_t wallpaperTiles[0x1000];
-uint16_t wallpaperTilemap[0x2d0];
-uint16_t wallpaperPal[32 * 4];
+extern uint8_t wallpaperTiles[0x1000];
+extern uint16_t wallpaperTilemap[0x2d0];
+extern uint16_t wallpaperPal[32 * 4];
+extern const char *activeGameName;
+extern const char *activeGameNameShort;
+extern int activeGameId;
+extern int activeGameLanguage;
 
 void assets_init_placeholder();
 _Bool assets_init_cart();

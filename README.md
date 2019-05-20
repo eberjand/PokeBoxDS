@@ -57,7 +57,7 @@ Insert a compatible GBA cartridge before selecting `Slot-2 GBA Cartridge` from t
 
 ### Planned future features
 
-* Move Pokémon between your game's save data and a your SD card
+* Move Pokémon and items between your game's save data and your SD card
   * and a ton of subfeatures within this that aren't worth detailing yet like Box Groups, generation conversion, etc.
 * Support for the GB/GBC Pokémon games: Red, Green, Blue, Yellow, Gold, Silver, Crystal
   * Only with `.sav` files on the SD card, such as those created by [Goomba Color](http://www.dwedit.org/gba/goombacolor.php).
@@ -65,9 +65,10 @@ Insert a compatible GBA cartridge before selecting `Slot-2 GBA Cartridge` from t
 * Support for the DS Pokémon games: Diamond, Pearl, Platinum, Black, White, Black 2, White 2
   * Can't access DS cartridges while running PokeBoxDS from a Slot-1 flash card, but alternatives can work:
     * Reading from sav files on the SD card instead of cartridges
-    * Slot-2 cards that support DS mode, like M3 Perfect
+    * Slot-2 cards that support DS mode, like M3 Perfect/Pro/Lite or EZ-Flash IV
 	* Run on a DSi and use its SD card slot
 * Ability to read sav files from the SD card inserted in a Slot-2 cart while running off a Slot-1 card
+* Play music from the selected game
 
 ## Comparison to official Pokémon software
 

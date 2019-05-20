@@ -32,7 +32,18 @@
 
 #define ROM_OFFSET_MASK 0xFFFFFF
 
-uint16_t tileGfxCompressed[4096];
+#define IS_RUBY_SAPPHIRE (activeGameId == 0 || activeGameId == 1)
+#define IS_FIRERED_LEAFGREEN (activeGameId == 2 || activeGameId == 3)
+
+uint8_t wallpaperTiles[0x1000];
+uint16_t wallpaperTilemap[0x2d0];
+uint16_t wallpaperPal[32 * 4];
+const char *activeGameName;
+const char *activeGameNameShort;
+int activeGameId;
+int activeGameLanguage;
+
+static uint16_t tileGfxCompressed[4096];
 
 typedef struct assets_handler {
 	int assetSource;
@@ -54,11 +65,7 @@ typedef struct assets_handler {
 } assets_handler_t;
 static assets_handler_t handler;
 
-#define IS_RUBY_SAPPHIRE ((handler.game >> 1) == 0)
-#define IS_FIRERED_LEAFGREEN ((handler.game >> 1) == 1)
 
-// Define the offsets PC icon assets in all known versions of GBA Pokémon
-// Languages: J=Japanese, E=English, F=French, D=German S=Spanish, I=Italian
 struct rom_offsets_t {
 	char *gamecode;
 	int rev;
@@ -129,29 +136,82 @@ static const struct rom_offsets_t rom_offsets[] = {
 	{"BPES", 0, (void*) 0x857e784, (void*) 0x830767c, (void*) 0x857a094},
 	{"BPEI", 0, (void*) 0x857838c, (void*) 0x8300ddc, (void*) 0x8573c9c},
 };
-static const char *const gamecode_list[] = {
-	"AXV", "AXP", "BPR", "BPG", "BPE"
+static const struct {
+	char *gamecode;
+	int gameId;
+	const char* nameShort;
+	const char* nameLong;
+} game_names[] = {
+	{"AXVJ", 0, "Ruby (JP)", "Pocket Monsters Ruby (Japanese)"},
+	{"AXVE", 0, "Ruby (EN)", "Pokemon Ruby Version (English)"},
+	{"AXVF", 0, "Ruby (FR)", "Pokemon Version Rubis (French)"},
+	{"AXVD", 0, "Ruby (DE)", "Pokemon Rubin-Edition (German)"},
+	{"AXVS", 0, "Ruby (ES)", "Pokemon Edicion Rubi (Spanish)"},
+	{"AXVI", 0, "Ruby (IT)", "Pokemon Versione Rubino (Italian)"},
+	{"AXPJ", 1, "Sapphire (JP)", "Pocket Monsters Sapphire (Japanese)"},
+	{"AXPE", 1, "Sapphire (EN)", "Pokemon Sapphire Version (English)"},
+	{"AXPF", 1, "Sapphire (FR)", "Pokemon Version Saphir (French)"},
+	{"AXPD", 1, "Sapphire (DE)", "Pokemon Saphir-Edition (German)"},
+	{"AXPS", 1, "Sapphire (ES)", "Pokemon Edicion Zafiro (Spanish)"},
+	{"AXPI", 1, "Sapphire (TI)", "Pokemon Versione Zaffiro (Italian)"},
+	{"BPRJ", 2, "FireRed (JP)", "Pocket Monsters FireRed (Japanese)"},
+	{"BPRE", 2, "FireRed (EN)", "Pokemon FireRed Version (English)"},
+	{"BPRF", 2, "FireRed (FR)", "Pokemon Version Rouge Feu (French)"},
+	{"BPRD", 2, "FireRed (DE)", "Pokemon Feuerrote Edition (German)"},
+	{"BPRS", 2, "FireRed (ES)", "Pokemon Edicion Rojo Fuego (Spanish)"},
+	{"BPRI", 2, "FireRed (IT)", "Pokemon Versione Rosso Fuoco (Italian)"},
+	{"BPGJ", 3, "LeafGreen (JP)", "Pocket Monsters LeafGreen (Japanese)"},
+	{"BPGE", 3, "LeafGreen (EN)", "Pokemon LeafGreen Version (English)"},
+	{"BPGF", 3, "LeafGreen (FR)", "Pokemon Version Vert Feuille (French)"},
+	{"BPGD", 3, "LeafGreen (DE)", "Pokemon Blattgrune Edition (German)"},
+	{"BPGS", 3, "LeafGreen (ES)", "Pokemon Edicion Verde Hoja (Spanish)"},
+	{"BPGI", 3, "LeafGreen (IT)", "Pokemon Versione Verde Foglia (Italian)"},
+	{"BPEJ", 4, "Emerald (JP)", "Pocket Monsters Emerald (Japanese)"},
+	{"BPEE", 4, "Emerald (EN)", "Pokemon Emerald Version (English)"},
+	{"BPEF", 4, "Emerald (FR)", "Pokemon Version Emeraude (French)"},
+	{"BPED", 4, "Emerald (DE)", "Pokemon Smaragd-Edition (German)"},
+	{"BPES", 4, "Emerald (ES)", "Pokemon Edicion Esmeralda (Spanish)"},
+	{"BPEI", 4, "Emerald (IT)", "Pokemon Versione Smeraldo (Italian)"}
 };
-static const char language_list[] = "JEFDSI";
+static const struct {
+	char c;
+	int lang;
+} language_codes[] = {
+	{'J', LANG_JAPANESE},
+	{'E', LANG_ENGLISH},
+	{'F', LANG_FRENCH},
+	{'D', LANG_GERMAN},
+	{'S', LANG_SPANISH},
+	{'I', LANG_ITALIAN}
+};
 
-static bool getIconOffsets(tGBAHeader *header) {
+static bool initFromHeader(tGBAHeader *header) {
 	uint32_t gamecode = GET32(header->gamecode, 0);
+	int has_offsets = 0;
+	int has_name = 0;
+	int has_language = 0;
 
-	handler.game = -1;
-	handler.language = -1;
-	// Check only the first 3 letters of gamecode
-	for (int i = 0; i < ARRAY_LENGTH(gamecode_list); i++) {
-		if ((gamecode & 0xFFFFFF) == ((uint32_t**) gamecode_list)[i][0]) {
-			handler.game = i;
+	// Determine the game name
+	for (int i = 0; i < ARRAY_LENGTH(game_names); i++) {
+		if (gamecode == GET32(game_names[i].gamecode, 0)) {
+			activeGameId = game_names[i].gameId;
+			activeGameName = game_names[i].nameLong;
+			activeGameNameShort = game_names[i].nameShort;
+			has_name = 1;
 			break;
 		}
 	}
-	for (int i = 0; i < ARRAY_LENGTH(language_list); i++) {
-		if ((gamecode >> 24) == language_list[i]) {
-			handler.language = i;
+
+	// Determine the game's language
+	for (int i = 0; i < ARRAY_LENGTH(language_codes); i++) {
+		if ((gamecode >> 24) == language_codes[i].c) {
+			activeGameLanguage = language_codes[i].lang;
+			has_language = 1;
 			break;
 		}
 	}
+
+	// Get all rom offsets for this game
 	for (int i = 0; i < ARRAY_LENGTH(rom_offsets); i++) {
 		const struct rom_offsets_t *table = &rom_offsets[i];
 		if (gamecode == GET32(table->gamecode, 0)) {
@@ -163,11 +223,12 @@ static bool getIconOffsets(tGBAHeader *header) {
 				handler.frontPaletteTable = table->frontSpriteTable + 0x2260;
 				handler.shinyPaletteTable = table->frontSpriteTable + 0x3020;
 				handler.wallpaperTable = table->wallpaperTable;
-				return true;
+				has_offsets = true;
+				break;
 			}
 		}
 	}
-	return false;
+	return has_name && has_language && has_offsets;
 }
 
 void assets_init_placeholder() {
@@ -185,7 +246,7 @@ bool assets_init_cart() {
 	handler.assetSource = ASSET_SOURCE_CART;
 	handler.file = NULL;
 	handler.fp = NULL;
-	if (!getIconOffsets(&GBA_HEADER))
+	if (!initFromHeader(&GBA_HEADER))
 		return false;
 	return true;
 }
@@ -201,7 +262,7 @@ bool assets_init_romfile(const char *file) {
 		return false;
 	fread(&header, sizeof(header), 1, handler.fp);
 
-	if (!getIconOffsets(&header)) {
+	if (!initFromHeader(&header)) {
 		fclose(handler.fp);
 		handler.fp = NULL;
 		handler.assetSource = 0;
@@ -228,6 +289,10 @@ void assets_free() {
 	if ((uint16_t*) handler.iconPaletteIndices < GBAROM)
 		free(handler.iconPaletteIndices);
 	memset(&handler, 0, sizeof(handler));
+	activeGameName = "Unknown";
+	activeGameNameShort = "Unknown";
+	activeGameId = -1;
+	activeGameLanguage = -1;
 }
 
 uint32_t readRomWord(void *address) {

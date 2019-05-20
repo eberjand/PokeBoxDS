@@ -17,10 +17,15 @@
  */
 #pragma once
 #include <stdint.h>
+#include <stdio.h>
 #include <stddef.h>
 
 // 30 Pokemon per box, 80 bytes per Pokemon
 #define BOX_SIZE_BYTES (30 * 80)
+
+#define SAVEDATA_NUM_SECTIONS 14
+
+#define GET_SAVEDATA_SECTION(idx) (savedata_buffer + savedata_sections[idx])
 
 union pkm_t {
 	uint8_t bytes[80];
@@ -55,10 +60,15 @@ union pkm_t {
 	} __attribute__((packed));
 };
 
+extern uint8_t savedata_buffer[SAVEDATA_NUM_SECTIONS * 0x1000]; // 56 kiB
+extern uint32_t savedata_sections[SAVEDATA_NUM_SECTIONS];
+extern int savedata_active_slot;
+
 int decode_gen3_string(char *out, const uint8_t *str, int len, uint16_t lang);
 int pkm_is_shiny(const union pkm_t *pkm);
 uint16_t pkm_displayed_species(const union pkm_t *pkm);
+void print_trainer_info(void);
 int print_pokemon_details(const union pkm_t *pkm);
 uint16_t decode_pkm_encrypted_data(uint8_t *pkm);
-int load_box_savedata(uint8_t *box_data, uint8_t *savedata, size_t *sections, int boxIdx);
-void sav_load(const char *name, int gameId, uint8_t *savedata);
+int load_box_savedata(uint8_t *box_data, int boxIdx);
+int load_savedata(FILE *fp);

@@ -22,7 +22,7 @@
 
 #include "ConsoleMenu.h"
 #include "console_helper.h"
-#include "sav_loader.h"
+#include "savedata_gen3.h"
 
 int hover_callback(char *str, int extra_int) {
 	union pkm_t *pkm = (union pkm_t*) extra_int;
@@ -68,13 +68,13 @@ void open_box(char *name, uint8_t *box_data) {
 	clearConsoles();
 }
 
-void open_boxes(uint8_t *savedata, size_t *sections) {
+void open_boxes() {
 	const int NUM_BOXES = 14;
 	char box_names[9 * NUM_BOXES];
 	char *box_name;
 	uint8_t box_data[BOX_SIZE_BYTES];
 	struct ConsoleMenuItem box_menu[NUM_BOXES];
-	memcpy(box_names, savedata + sections[13] + 0x744, sizeof(box_names));
+	memcpy(box_names, GET_SAVEDATA_SECTION(13) + 0x744, sizeof(box_names));
 	box_name = box_names;
 	// Box names can be up to 8 characters and always include a 0xFF terminator for 9 bytes
 	for (int i = 0; i < NUM_BOXES; i++, box_name += 9) {
@@ -90,7 +90,7 @@ void open_boxes(uint8_t *savedata, size_t *sections) {
 		if (!selected)
 			break;
 
-		load_box_savedata(box_data, savedata, sections, extra);
+		load_box_savedata(box_data, extra);
 		open_box(box_name, box_data);
 	}
 }
