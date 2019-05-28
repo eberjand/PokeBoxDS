@@ -59,6 +59,7 @@ union pkm_t {
 		uint32_t ribbons;
 	} __attribute__((packed));
 };
+typedef union pkm_t pkm3_t;
 
 extern uint8_t savedata_buffer[SAVEDATA_NUM_SECTIONS * 0x1000]; // 56 kiB
 extern uint32_t savedata_sections[SAVEDATA_NUM_SECTIONS];
@@ -69,6 +70,7 @@ int pkm_is_shiny(const union pkm_t *pkm);
 uint16_t pkm_displayed_species(const union pkm_t *pkm);
 void print_trainer_info(void);
 int print_pokemon_details(const union pkm_t *pkm);
-uint16_t decode_pkm_encrypted_data(uint8_t *pkm);
+uint16_t decode_pkm_encrypted_data(pkm3_t *dest, const uint8_t *src);
 int load_box_savedata(uint8_t *box_data, int boxIdx);
+int load_boxes_savedata(uint8_t *box_data);
 int load_savedata(FILE *fp);

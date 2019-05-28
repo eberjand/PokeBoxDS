@@ -32,24 +32,25 @@ int hover_callback(char *str, int extra_int) {
 	return print_pokemon_details(pkm);
 }
 
-void open_box(char *name, uint8_t *box_data) {
+void open_box(char *name, uint8_t *rawBoxData) {
 	char nicknames[11 * 30] = {0}; // 30 pokemon, 10 characters + NUL each
 	char *cur_nick = nicknames;
 	struct ConsoleMenuItem box_menu[30];
 	int box_size = 0;
+	pkm3_t boxData[30];
 
 	initConsoles();
 	selectBottomConsole();
 
 	for (int i = 0; i < 30; i++, cur_nick += 11) {
-		union pkm_t *pkm = (union pkm_t*) (box_data + (i * 80));
-		uint16_t checksum = decode_pkm_encrypted_data(pkm->bytes);
+		pkm3_t *pkm = &boxData[i];
+		uint16_t checksum = decode_pkm_encrypted_data(pkm, rawBoxData + i * 80);
 		// Skip anything with 0 in species field (empty space).
 		// These entries may have leftover/garbage data in the other fields.
 		if (pkm->species == 0) {
 			continue;
 		}
-		decode_gen3_string(cur_nick, box_data + (i * 80) + 8, 10, pkm->language);
+		decode_gen3_string(cur_nick, pkm->nickname, 10, pkm->language);
 		if (checksum != pkm->checksum)
 			strcpy(cur_nick, "BAD EGG");
 		else if (pkm->language == 0x601)

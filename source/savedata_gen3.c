@@ -242,6 +242,28 @@ int load_box_savedata(uint8_t *box_data, int boxIdx) {
 	return boxIdx;
 }
 
+int load_boxes_savedata(uint8_t *box_data) {
+	uint16_t activeBox;
+
+	// First 4 bytes of PC buffer is the most recently viewed PC box number
+	activeBox = GET32(GET_SAVEDATA_SECTION(5), 0);
+
+	// After excluding the active box number, Section 5 has 0xf7c bytes of Pokemon data
+	memcpy(box_data, GET_SAVEDATA_SECTION(5) + 4, 0xf7c);
+	box_data += 0xf7c;
+
+	// Sections 6-12 each have 0xf80 bytes of Pokemon data
+	for (int section = 6; section <= 12; section++) {
+		memcpy(box_data, GET_SAVEDATA_SECTION(section), 0xf80);
+		box_data += 0xf80;
+	}
+
+	// Section 13 has the last 0x744 bytes of Pokemon data, adding up to 33600 bytes total
+	memcpy(box_data, GET_SAVEDATA_SECTION(13), 0x744);
+
+	return activeBox;
+}
+
 int pkm_is_shiny(const union pkm_t *pkm) {
 	uint16_t xor = 0;
 	for (int i = 0; i < 4; i++)
@@ -387,35 +409,59 @@ int print_pokemon_details(const union pkm_t *pkm) {
 	return 0;
 }
 
-uint16_t decode_pkm_encrypted_data(uint8_t *pkm) {
-	// There are 4 pkm sections that can be permutated in any order depending on the
-	// personality value.
-	// Encoded values: each byte in this list represents a possible ordering for the
-	// data sections. Each of the 4 sections has a 2-bit index in the byte.
-	const uint8_t data_order[] = {
+uint16_t decode_pkm_encrypted_data(pkm3_t *dest, const uint8_t *src) {
+	/* There are 4 pkm data sections that can be permutated in any order
+	 * depending on the personality value.
+	 * data_order[] encodes each possible ordering as one byte, made up of
+	 * four 2-bit fields corresponding to the index of each section.
+	 * For example, with 0x93 == 0b10010011
+	 *   bits[1:0] == 0b11 => reordered section 0 is copied from source section 3
+	 *   bits[3:2] == 0b00 => reordered section 1 is copied from source section 0
+	 *   bits[5:4] == 0b01 => reordered section 2 is copied from source section 1
+	 *   bits[7:6] == 0b10 => reordered section 3 is copied from source section 2
+	 *
+	 * When reordered, these four sections are:
+	 *   0. Growth: species, held item, exp, friendship
+	 *   1. Attacks: currently-learned moveset and PP limits
+	 *   2. EVs and Contest Condition
+	 *   3. Misc: IVs, ability, ribbons, pokerus, and met/origin data
+	 */
+	static const uint8_t data_order[] = {
 		0xe4, 0xb4, 0xd8, 0x9c, 0x78, 0x6c,
 		0xe1, 0xb1, 0xd2, 0x93, 0x72, 0x63,
 		0xc9, 0x8d, 0xc6, 0x87, 0x4e, 0x4b,
 		0x39, 0x2d, 0x36, 0x27, 0x1e, 0x1b
+		// Same numbers as above but in binary
+		//0b11100100, 0b10110100, 0b11011000, 0b10011100, 0b01111000, 0b01101100,
+		//0b11100001, 0b10110001, 0b11010010, 0b10010011, 0b01110010, 0b01100011,
+		//0b11001001, 0b10001101, 0b11000110, 0b10000111, 0b01001110, 0b01001011,
+		//0b00111001, 0b00101101, 0b00110110, 0b00100111, 0b00011110, 0b00011011
 	};
-	uint16_t checksum = 0;
-	// The entire contents of the 48-byte encrypted section is xored with this
-	uint32_t xor = GET32(pkm, 0) ^ GET32(pkm, 4);
+	uint16_t checksum;
+	uint8_t order;
+	uint32_t xor;
 	uint8_t reordered[48];
 
-	for (int i = 32; i < 80; i += 4) {
-		*((uint32_t*) (pkm + i)) ^= xor;
+	// Rearrange to a consistent order
+	order = data_order[GET32(src, 0) % 24];
+	for (int i = 0; i < 4; i++)
+		memcpy(reordered + i * 12, src + 32 + 12 * ((order >> (i * 2)) & 3), 12);
+
+	// "Decrypt" the reordered data
+	xor = GET32(src, 0) ^ GET32(src, 4);
+	for (int i = 0; i < 48; i += 4) {
+		SET32(reordered, i) ^= xor;
 	}
 
-	uint8_t order = data_order[GET32(pkm, 0) % 24];
-
-	// Rearrange to a consistent order: Growth, Attacks, EVs/Condition, then Misc
-	for (int i = 0; i < 4; i++)
-		memcpy(reordered + i * 12, pkm + 32 + 12 * ((order >> (i * 2)) & 3), 12);
-	memcpy(pkm + 32, reordered, 48);
-
+	// Calculate the checksum
+	checksum = 0;
 	for (int i = 0; i < 48; i += 2)
 		checksum += GET16(reordered, i);
 
+	// Output result data
+	if (dest) {
+		memcpy(dest->bytes, src, 32);
+		memcpy(dest->bytes + 32, reordered, 48);
+	}
 	return checksum;
 }
