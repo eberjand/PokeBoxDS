@@ -24,6 +24,8 @@
 #include "asset_manager.h"
 #include "console_helper.h"
 #include "cursor.h"
+#include "guiTileset.h"
+#include "gui_tilemaps.h"
 #include "savedata_gen3.h"
 
 /* VRAM layout:
@@ -49,11 +51,12 @@
  * 8000-8FFF wallpaper tile data
  * 9000-9FFF wallpaper tile data (next box)
  * A000-BFFF wallpaper tile data (unused)
- * C000-FFFF UI overlays tile data
+ * C000-FFFF UI overlays tile data (1024 tiles)
  *
  * BG palettes for each screen:
  * 00    Console text
  * 04-07 Current box wallpaper
+ * 08    UI overlays
  *
  * OAM entries for each screen: (limit 0x80)
  * 00    Cursor
@@ -72,6 +75,7 @@
  * OBJ palettes for each screen: (each palette is 32 bytes)
  * 00-02 Box icon sprites (only 3 palettes are needed total for every species)
  * 04-05 Large front sprite (double buffered)
+ * 08    Cursor
  *
  * All the "next box" sections are currently unused, but reserved for
  * implementing the sliding animation in changing between boxes
@@ -88,6 +92,7 @@
 
 // Tileset offset = BG_GFX + TILEBASE * 0x4000
 #define BG_TILEBASE_WALLPAPER 2
+#define BG_TILEBASE_BUTTONS 3
 
 #define OAM_INDEX_CURSOR 0
 #define OAM_INDEX_BIGSPRITE 0x10
@@ -134,6 +139,24 @@ struct boxgui_state {
 	pkm3_t boxData[30 * 14];
 };
 
+static void draw_gui_tilemap(const uint8_t *tilemap, uint8_t screen, uint8_t x, uint8_t y) {
+	uint8_t width = tilemap[0];
+	uint8_t height = tilemap[1];
+	uint16_t *mapRam;
+	tilemap += 2;
+	if (screen) {
+		mapRam = BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS);
+	} else {
+		mapRam = BG_MAP_RAM(BG_MAPBASE_BUTTONS);
+	}
+	for (int rowIdx = 0; rowIdx < height; rowIdx++) {
+		for (int colIdx = 0; colIdx < width; colIdx++) {
+			uint16_t tspec = (8 << 12) | tilemap[rowIdx * width + colIdx];
+			mapRam[(rowIdx + y) * 32 + colIdx + x] = tspec;
+		}
+	}
+}
+
 static void status_display_update(const union pkm_t *pkm_in) {
 	pkm3_t pkm;
 	uint16_t checksum;
@@ -141,17 +164,17 @@ static void status_display_update(const union pkm_t *pkm_in) {
 	char nickname[12];
 	uint8_t palette[32];
 
-	selectBottomConsole();
+	selectTopConsole();
 	consoleClear();
 
 	checksum = decode_pkm_encrypted_data(&pkm, pkm_in->bytes);
 
 	if (pkm.species == 0) {
-		selectTopConsole();
-		iprintf("\x1b[0;0H%-10s\n", "");
-		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
-		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
-		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
+		selectBottomConsole();
+		iprintf("\x1b[1;22H%-10s\n", "");
+		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
+		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
+		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
 		return;
 	}
 
@@ -168,27 +191,28 @@ static void status_display_update(const union pkm_t *pkm_in) {
 		nickname[10] = 0;
 	}
 
-	selectTopConsole();
-	iprintf("\x1b[0;0H%-10s\n", nickname);
+	selectBottomConsole();
+	iprintf("\x1b[1;22H\x1b[30;0m%-10s\x1b[39;0m\n", nickname);
 
 	readFrontImage(frontSpriteData, palette, species, pkm_is_shiny(&pkm));
 
-	memcpy((uint8_t*) SPRITE_PALETTE + 32 * (4 + activeSprite), palette, 32);
-	memcpy((uint8_t*) SPRITE_GFX + OBJ_GFXIDX_BIGSPRITE * 128 + activeSprite * 2048,
+	memcpy((uint8_t*) SPRITE_PALETTE_SUB + 32 * (4 + activeSprite), palette, 32);
+	memcpy((uint8_t*) SPRITE_GFX_SUB + OBJ_GFXIDX_BIGSPRITE * 128 + activeSprite * 2048,
 		frontSpriteData, 2048);
-	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = OBJ_Y(16) | ATTR0_COLOR_16;
-	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = OBJ_X(8) | ATTR1_SIZE_64;
-	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].palette = 4 + activeSprite;
-	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].gfxIndex = OBJ_GFXIDX_BIGSPRITE + activeSprite * 16;
+	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = OBJ_Y(36) | ATTR0_COLOR_16;
+	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = OBJ_X(180) | ATTR1_SIZE_64;
+	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].palette = 4 + activeSprite;
+	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].gfxIndex = OBJ_GFXIDX_BIGSPRITE + activeSprite * 16;
 	activeSprite ^= 1;
 }
 
 static void display_cursor() {
-	oamMain.oamMemory[0].attribute[0] = OBJ_Y(60) | ATTR0_COLOR_16;
-	oamMain.oamMemory[0].attribute[1] = OBJ_X(100) | ATTR1_SIZE_32;
-	oamMain.oamMemory[0].palette = 0;
-	oamMain.oamMemory[0].gfxIndex = 0;
-	dmaCopy(cursorTiles, SPRITE_GFX, sizeof(cursorTiles));
+	oamSub.oamMemory[0].attribute[0] = OBJ_Y(60) | ATTR0_COLOR_16;
+	oamSub.oamMemory[0].attribute[1] = OBJ_X(12) | ATTR1_SIZE_32;
+	oamSub.oamMemory[0].palette = 8;
+	oamSub.oamMemory[0].gfxIndex = 0;
+	dmaCopy(cursorTiles, SPRITE_GFX_SUB, sizeof(cursorTiles));
+	dmaCopy(cursorPal, SPRITE_PALETTE_SUB + 16 * 8, sizeof(cursorPal));
 }
 
 static int display_icon_sprites(
@@ -198,7 +222,7 @@ static int display_icon_sprites(
 
 	for (int i = 0; i < 30; i++) {
 		uint16_t species = speciesList[i];
-		SpriteEntry *oam = &oamMain.oamMemory[oamIndex + i];
+		SpriteEntry *oam = &oamSub.oamMemory[oamIndex + i];
 
 		if (species == 0) {
 			oam->attribute[0] = 0;
@@ -215,7 +239,7 @@ static int display_icon_sprites(
 		// 2 animation frames at 512 bytes each = 1024 bytes per Pokemon.
 		dmaCopy(
 			getIconImage(species),
-			(uint8_t*) SPRITE_GFX + gfxIndex * 128 + i * 1024,
+			(uint8_t*) SPRITE_GFX_SUB + gfxIndex * 128 + i * 1024,
 			1024);
 
 		obj_idx++;
@@ -225,7 +249,7 @@ static int display_icon_sprites(
 
 static void move_icon_sprites(int oamIndex, int x, int y) {
 	for (int i = 0; i < 30; i++) {
-		SpriteEntry *oam = &oamMain.oamMemory[oamIndex + i];
+		SpriteEntry *oam = &oamSub.oamMemory[oamIndex + i];
 
 		if (oam->attribute[0] == 0)
 			continue;
@@ -237,10 +261,18 @@ static void move_icon_sprites(int oamIndex, int x, int y) {
 
 static void clear_icon_sprites(int oamIndex) {
 	for (int i = 0; i < 30; i++) {
-		SpriteEntry *oam = &oamMain.oamMemory[oamIndex + i];
+		SpriteEntry *oam = &oamSub.oamMemory[oamIndex + i];
 		oam->attribute[0] = 0;
 		oam->attribute[1] = 0;
 		oam->attribute[2] = 0;
+	}
+}
+
+static void clear_selection_shadow() {
+	for (int rowIdx = 9; rowIdx < 24; rowIdx++) {
+		for (int colIdx = 0; colIdx < 21; colIdx++) {
+			BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS)[rowIdx * 32 + colIdx] = 0;
+		}
 	}
 }
 
@@ -261,36 +293,66 @@ static void decode_boxes(struct boxgui_state *guistate) {
 
 static void update_cursor(struct boxgui_state *guistate) {
 	int cur_poke = guistate->cursor_y * 6 + guistate->cursor_x;
-	oamMain.oamMemory[0].x = guistate->cursor_x * 24 + 100;
-	oamMain.oamMemory[0].y = guistate->cursor_y * 24 + 60;
+	oamSub.oamMemory[0].x = guistate->cursor_x * 24 + 12;
+	oamSub.oamMemory[0].y = guistate->cursor_y * 24 + 60;
 	if (guistate->flags & GUI_FLAG_HOLDING) {
 		move_icon_sprites(OAM_INDEX_HOLDING,
-			100 + guistate->holdingMin_x * 24,
+			12 + guistate->holdingMin_x * 24,
 			48 + guistate->holdingMin_y * 24);
 	} else {
 		status_display_update(guistate->boxData + guistate->activeBox * 30 + cur_poke);
 	}
+	clear_selection_shadow();
 	if (guistate->flags & (GUI_FLAG_SELECTING | GUI_FLAG_HOLDING)) {
-		// TODO draw colored background behind the selection
+		uint8_t min_x = (guistate->holdingMin_x    ) * 3 + 2;
+		uint8_t max_x = (guistate->holdingMax_x + 1) * 3 + 2;
+		uint8_t min_y = (guistate->holdingMin_y    ) * 3 + 9;
+		uint8_t max_y = (guistate->holdingMax_y + 1) * 3 + 9;
+		for (uint8_t rowIdx = min_y; rowIdx < max_y - 1; rowIdx++) {
+			for (uint8_t colIdx = min_x; colIdx < max_x; colIdx++) {
+				uint16_t tspec = (8 << 12) | 0x20;
+				BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS)[rowIdx * 32 + colIdx] = tspec;
+			}
+		}
 	}
 }
 
 static int display_box(const struct boxgui_state *guistate) {
 	char *name = guistate->boxNames[guistate->activeBox];
 	int wallpaper = guistate->boxWallpapers[guistate->activeBox];
+	int rc;
 
-	selectTopConsole();
-	iprintf("\x1b[7;16H\x1b[30;0m%-8s\x1b[39;0m", name);
+	// Calling loadWallpaper first helps prevent tearing, since loadWallpaper is
+	// much slower when loading from ROM files than Slot-2 carts.
+	rc = loadWallpaper(wallpaper);
 
-	if (loadWallpaper(wallpaper)) {
+	selectBottomConsole();
+	iprintf("\x1b[7;5H\x1b[30;0m%-8s\x1b[39;0m", name);
+
+	bgInit(BG_LAYER_BUTTONS, BgType_Text4bpp, BgSize_T_256x256,
+		BG_MAPBASE_BUTTONS, BG_TILEBASE_BUTTONS);
+	bgInit(BG_LAYER_WALLPAPER, BgType_Text4bpp, BgSize_T_256x256,
+		BG_MAPBASE_WALLPAPER, BG_TILEBASE_WALLPAPER);
+	bgInitSub(BG_LAYER_BUTTONS, BgType_Text4bpp, BgSize_T_256x256,
+		BG_MAPBASE_BUTTONS, BG_TILEBASE_BUTTONS);
+	bgInitSub(BG_LAYER_WALLPAPER, BgType_Text4bpp, BgSize_T_256x256,
+		BG_MAPBASE_WALLPAPER, BG_TILEBASE_WALLPAPER);
+
+	memset(BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS), 0, 2048);
+	memset(BG_MAP_RAM_SUB(BG_MAPBASE_WALLPAPER), 0, 2048);
+
+	memcpy(BG_TILE_RAM_SUB(BG_TILEBASE_BUTTONS), guiTilesetTiles, sizeof(guiTilesetTiles));
+	memcpy((uint8_t*) BG_PALETTE_SUB + 32 * 8, guiTilesetPal, sizeof(guiTilesetPal));
+
+	draw_gui_tilemap(tilemap_pokeStatusPane, 1, 21, 0);
+	draw_gui_tilemap(tilemap_boxLeftButton, 1, 1, 6);
+	draw_gui_tilemap(tilemap_boxRightButton, 1, 19, 6);
+
+	if (rc) {
 		int wallpaperPalOffset = 4;
-		bgInit(BG_LAYER_WALLPAPER, BgType_Text4bpp, BgSize_T_256x256,
-			BG_MAPBASE_WALLPAPER, BG_TILEBASE_WALLPAPER);
-		// This memset is placed after loadWallpaper to prevent tearing when loading
-		// from ROM files, which is much slower than reading from Slot-2 carts.
-		memset(BG_MAP_RAM(BG_MAPBASE_WALLPAPER), 0, 2048);
-		memcpy(BG_TILE_RAM(BG_TILEBASE_WALLPAPER), wallpaperTiles, sizeof(wallpaperTiles));
-		memcpy((uint8_t*) BG_PALETTE + 32 * wallpaperPalOffset,
+		memset(BG_MAP_RAM_SUB(BG_MAPBASE_WALLPAPER), 0, 2048);
+		memcpy(BG_TILE_RAM_SUB(BG_TILEBASE_WALLPAPER), wallpaperTiles, sizeof(wallpaperTiles));
+		memcpy((uint8_t*) BG_PALETTE_SUB + 32 * wallpaperPalOffset,
 			wallpaperPal, sizeof(wallpaperPal));
 		for (int rowIdx = 0; rowIdx < 18; rowIdx++) {
 			for (int colIdx = 0; colIdx < 20; colIdx++) {
@@ -299,17 +361,15 @@ static int display_box(const struct boxgui_state *guistate) {
 				if (pal)
 					pal += wallpaperPalOffset - 1;
 				tspec = (pal << 12) | (tspec & 0xFFF);
-				BG_MAP_RAM(BG_MAPBASE_WALLPAPER)[(rowIdx + 6) * 32 + colIdx + 12] = tspec;
+				BG_MAP_RAM_SUB(BG_MAPBASE_WALLPAPER)[(rowIdx + 6) * 32 + colIdx + 1] = tspec;
 			}
 		}
-	} else {
-		memset(BG_MAP_RAM(BG_MAPBASE_WALLPAPER), 0, 2048);
 	}
 
 	return display_icon_sprites(
 		guistate->boxIcons + guistate->activeBox * 30,
 		OAM_INDEX_CURBOX, OBJ_GFXIDX_CURBOX,
-		100, 60);
+		12, 60);
 }
 
 static int switch_box(struct boxgui_state *guistate, int rel) {
@@ -417,6 +477,7 @@ static void start_selection(struct boxgui_state *guistate) {
 	guistate->holdingMin_y = guistate->cursor_y;
 	guistate->holdingMax_y = guistate->cursor_y;
 	guistate->flags = GUI_FLAG_SELECTING;
+	update_cursor(guistate);
 }
 
 static void pickup_selection(struct boxgui_state *guistate) {
@@ -441,8 +502,9 @@ static void pickup_selection(struct boxgui_state *guistate) {
 	}
 	display_icon_sprites(
 		guistate->holdIcons, OAM_INDEX_HOLDING, OBJ_GFXIDX_HOLDING,
-		100 + 24 * dx, 48 + 24 * dy);
+		12 + 24 * dx, 48 + 24 * dy);
 	display_box(guistate);
+	update_cursor(guistate);
 }
 
 static void drop_holding(struct boxgui_state *guistate) {
@@ -553,8 +615,10 @@ void open_boxes_gui() {
 
 	vramSetBankB(VRAM_B_MAIN_SPRITE);
 	vramSetBankC(VRAM_C_SUB_BG);
+	vramSetBankD(VRAM_D_SUB_SPRITE);
 
 	oamInit(&oamMain, SpriteMapping_1D_128, false);
+	oamInit(&oamSub, SpriteMapping_1D_128, false);
 
 	initConsoles();
 	clearConsoles();
@@ -577,6 +641,7 @@ void open_boxes_gui() {
 
 	// Load all Pokemon box icon palettes into VRAM
 	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE, 32 * 3);
+	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE_SUB, 32 * 3);
 
 	// Initial display
 	display_cursor();
@@ -584,6 +649,7 @@ void open_boxes_gui() {
 	display_box(guistate);
 	status_display_update(guistate->boxData + 30 * guistate->activeBox);
 	oamUpdate(&oamMain);
+	oamUpdate(&oamSub);
 	keysSetRepeat(20, 10);
 
 	for (;;) {
@@ -618,9 +684,16 @@ void open_boxes_gui() {
 				switch_box(guistate, (keys & KEY_L) ? -1 : 1);
 		}
 		oamUpdate(&oamMain);
+		oamUpdate(&oamSub);
 	}
 
 	free(guistate);
+	videoBgDisable(BG_LAYER_BUTTONS);
+	videoBgDisable(BG_LAYER_WALLPAPER);
+	videoBgDisableSub(BG_LAYER_BUTTONS);
+	videoBgDisableSub(BG_LAYER_WALLPAPER);
+	oamDisable(&oamMain);
+	oamDisable(&oamSub);
 	clearConsoles();
 }
 

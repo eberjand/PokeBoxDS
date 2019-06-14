@@ -37,7 +37,7 @@
 
 uint8_t wallpaperTiles[0x1000];
 uint16_t wallpaperTilemap[0x2d0];
-uint16_t wallpaperPal[32 * 4];
+uint16_t wallpaperPal[16 * 4];
 const char *activeGameName;
 const char *activeGameNameShort;
 int activeGameId;

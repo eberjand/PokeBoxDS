@@ -15,26 +15,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-#include <stdio.h>
+#pragma once
 #include <stdint.h>
-#include "languages.h"
 
-extern uint8_t wallpaperTiles[0x1000];
-extern uint16_t wallpaperTilemap[0x2d0];
-extern uint16_t wallpaperPal[16 * 4];
-extern const char *activeGameName;
-extern const char *activeGameNameShort;
-extern int activeGameId;
-extern int activeGameLanguage;
-
-void assets_init_placeholder();
-_Bool assets_init_cart();
-_Bool assets_init_romfile(const char *file);
-void assets_free();
-
-uint8_t getIconPaletteIdx(uint16_t species);
-// Returned pointer is only valid until the next call of either function
-const uint16_t* getIconImage(uint16_t species);
-const uint16_t* getIconPaletteColors(int index);
-void readFrontImage(uint8_t *tiles_out, uint8_t *palette_out, uint16_t species, int shiny);
-int loadWallpaper(int index);
+extern const uint8_t tilemap_pokeStatusPane[];
+extern const uint8_t tilemap_boxLeftButton[];
+extern const uint8_t tilemap_boxRightButton[];
