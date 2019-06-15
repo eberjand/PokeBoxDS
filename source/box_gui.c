@@ -136,7 +136,7 @@ struct boxgui_state {
 	int8_t holdingMax_y;
 	uint16_t boxIcons[30 * 64];
 	uint16_t holdIcons[30];
-	pkm3_t boxData[30 * 14];
+	uint8_t boxData[14 * BOX_SIZE_BYTES];
 };
 
 static void draw_gui_tilemap(const uint8_t *tilemap, uint8_t screen, uint8_t x, uint8_t y) {
@@ -157,7 +157,7 @@ static void draw_gui_tilemap(const uint8_t *tilemap, uint8_t screen, uint8_t x, 
 	}
 }
 
-static void status_display_update(const union pkm_t *pkm_in) {
+static void status_display_update(const uint8_t *pkm_in) {
 	pkm3_t pkm;
 	uint16_t checksum;
 	u16 species;
@@ -167,7 +167,7 @@ static void status_display_update(const union pkm_t *pkm_in) {
 	selectTopConsole();
 	consoleClear();
 
-	checksum = decode_pkm_encrypted_data(&pkm, pkm_in->bytes);
+	checksum = decode_pkm_encrypted_data(&pkm, pkm_in);
 
 	if (pkm.species == 0) {
 		selectBottomConsole();
@@ -281,7 +281,7 @@ static void decode_boxes(struct boxgui_state *guistate) {
 	uint16_t species;
 	pkm3_t pkm;
 	for (int pkmIdx = 0; pkmIdx < 30 * 14; pkmIdx++) {
-		const uint8_t *bytes = guistate->boxData[pkmIdx].bytes;
+		const uint8_t *bytes = guistate->boxData + pkmIdx * PKM3_SIZE;
 		checksum = decode_pkm_encrypted_data(&pkm, bytes);
 		if (checksum != pkm.checksum)
 			species = 412; // Egg icon for Bad EGG
@@ -300,7 +300,9 @@ static void update_cursor(struct boxgui_state *guistate) {
 			12 + guistate->holdingMin_x * 24,
 			48 + guistate->holdingMin_y * 24);
 	} else {
-		status_display_update(guistate->boxData + guistate->activeBox * 30 + cur_poke);
+		status_display_update(guistate->boxData +
+			guistate->activeBox * BOX_SIZE_BYTES +
+			cur_poke * PKM3_SIZE);
 	}
 	clear_selection_shadow();
 	if (guistate->flags & (GUI_FLAG_SELECTING | GUI_FLAG_HOLDING)) {
@@ -541,8 +543,8 @@ static void store_holding(struct boxgui_state *guistate) {
 	int x_start, x_iter, x_end, y_start, y_iter, y_end;
 	uint16_t *dstBoxIcons = guistate->boxIcons + guistate->activeBox * 30;
 	uint16_t *srcBoxIcons = guistate->boxIcons + guistate->holdingSourceBox * 30;
-	pkm3_t *dstBoxData = guistate->boxData + guistate->activeBox * 30;
-	pkm3_t *srcBoxData = guistate->boxData + guistate->holdingSourceBox * 30;
+	uint8_t *dstBoxData = guistate->boxData + guistate->activeBox * BOX_SIZE_BYTES;
+	uint8_t *srcBoxData = guistate->boxData + guistate->holdingSourceBox * BOX_SIZE_BYTES;
 
 	if (guistate->flags & GUI_FLAG_HOLDING_MULTIPLE) {
 		// Do nothing if any spot in the destination is occupied.
@@ -577,7 +579,7 @@ static void store_holding(struct boxgui_state *guistate) {
 	// Swap the contents of holdingSource and the destination
 	for (int y = y_start; y != y_end; y += y_iter) {
 		for (int x = x_start; x != x_end; x += x_iter) {
-			pkm3_t tmpPkm;
+			uint8_t tmpPkm[PKM3_SIZE];
 			int srcIdx, dstIdx;
 
 			srcIdx = (y + sy) * 6 + (x + sx);
@@ -586,9 +588,9 @@ static void store_holding(struct boxgui_state *guistate) {
 			srcBoxIcons[srcIdx] = dstBoxIcons[dstIdx];
 			dstBoxIcons[dstIdx] = guistate->holdIcons[y * 6 + x];
 
-			tmpPkm = dstBoxData[dstIdx];
-			dstBoxData[dstIdx] = srcBoxData[srcIdx];
-			srcBoxData[srcIdx] = tmpPkm;
+			memcpy(tmpPkm, dstBoxData + dstIdx * PKM3_SIZE, PKM3_SIZE);
+			memcpy(dstBoxData + dstIdx * PKM3_SIZE, srcBoxData + srcIdx * PKM3_SIZE, PKM3_SIZE);
+			memcpy(srcBoxData + srcIdx * PKM3_SIZE, tmpPkm, PKM3_SIZE);
 		}
 	}
 
@@ -637,7 +639,7 @@ void open_boxes_gui() {
 	guistate = calloc(1, sizeof(struct boxgui_state));
 	guistate->boxNames = box_names;
 	guistate->boxWallpapers = GET_SAVEDATA_SECTION(13) + 0x7C2;
-	guistate->activeBox = load_boxes_savedata((uint8_t*) guistate->boxData);
+	guistate->activeBox = load_boxes_savedata(guistate->boxData);
 
 	// Load all Pokemon box icon palettes into VRAM
 	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE, 32 * 3);
@@ -647,7 +649,7 @@ void open_boxes_gui() {
 	display_cursor();
 	decode_boxes(guistate);
 	display_box(guistate);
-	status_display_update(guistate->boxData + 30 * guistate->activeBox);
+	status_display_update(guistate->boxData + guistate->activeBox * BOX_SIZE_BYTES);
 	oamUpdate(&oamMain);
 	oamUpdate(&oamSub);
 	keysSetRepeat(20, 10);
@@ -687,13 +689,19 @@ void open_boxes_gui() {
 		oamUpdate(&oamSub);
 	}
 
-	free(guistate);
 	videoBgDisable(BG_LAYER_BUTTONS);
 	videoBgDisable(BG_LAYER_WALLPAPER);
 	videoBgDisableSub(BG_LAYER_BUTTONS);
 	videoBgDisableSub(BG_LAYER_WALLPAPER);
 	oamDisable(&oamMain);
 	oamDisable(&oamSub);
+	clearConsoles();
+	selectTopConsole();
+	write_boxes_savedata(guistate->boxData);
+	if (!write_savedata()) {
+		wait_for_button();
+	}
+	free(guistate);
 	clearConsoles();
 }
 

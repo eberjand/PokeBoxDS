@@ -22,6 +22,7 @@
 
 // 30 Pokemon per box, 80 bytes per Pokemon
 #define BOX_SIZE_BYTES (30 * 80)
+#define PKM3_SIZE 80
 
 #define SAVEDATA_NUM_SECTIONS 14
 
@@ -73,4 +74,6 @@ int print_pokemon_details(const union pkm_t *pkm);
 uint16_t decode_pkm_encrypted_data(pkm3_t *dest, const uint8_t *src);
 int load_box_savedata(uint8_t *box_data, int boxIdx);
 int load_boxes_savedata(uint8_t *box_data);
-int load_savedata(FILE *fp);
+int write_boxes_savedata(uint8_t *box_data);
+int load_savedata(const char *filename);
+int write_savedata(void);

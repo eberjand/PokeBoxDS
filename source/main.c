@@ -76,7 +76,6 @@ static char romPath[512] = {};
 
 void openGameFromSD() {
 	for (;;) {
-		FILE *fp;
 		int rc;
 
 		if (romPath[0] == 0)
@@ -91,14 +90,7 @@ void openGameFromSD() {
 		if (!assets_init_romfile(romPath))
 			assets_init_placeholder();
 
-		fp = fopen(savPath, "rb");
-		if (!fp) {
-			iprintf("No save file found for:\n%s\n", romPath);
-			wait_for_button();
-			continue;
-		}
-		rc = load_savedata(fp);
-		fclose(fp);
+		rc = load_savedata(savPath);
 		if (!rc) {
 			wait_for_button();
 			continue;

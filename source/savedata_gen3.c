@@ -33,6 +33,9 @@
 uint8_t savedata_buffer[SAVEDATA_NUM_SECTIONS * 0x1000];
 uint32_t savedata_sections[SAVEDATA_NUM_SECTIONS];
 int savedata_active_slot = -1;
+uint32_t savedata_index;
+
+static const char *savedata_file = NULL;
 
 static const uint16_t section_sizes[] = {
 	0xf2c, // Trainer info
@@ -51,6 +54,17 @@ static const uint16_t section_sizes[] = {
 	0x7d0, // PC I
 };
 
+union SaveSlotFooter {
+	uint8_t bytes[16];
+	struct {
+		uint32_t unused;
+		uint16_t section_id;
+		uint16_t checksum;
+		uint32_t signature; // Always 0x08012025
+		uint32_t saveidx;
+	} __attribute__((packed));
+};
+
 /**
  * Validates savedata for a single save slot and determines its section offsets.
  */
@@ -60,16 +74,7 @@ static int verify_savedata_slot(const uint8_t *savedata, uint32_t *sections_out,
 	uint32_t saveidx = UINT32_MAX;
 	uint16_t populated_sections = 0;
 	int isAllFF = 1;
-	union {
-		uint8_t bytes[16];
-		struct {
-			uint32_t unused;
-			uint16_t section_id;
-			uint16_t checksum;
-			uint32_t signature; // Always 0x08012025
-			uint32_t saveidx;
-		} __attribute__((packed));
-	} footer;
+	union SaveSlotFooter footer;
 
 	for (int sectionIdx = 0; sectionIdx < SAVEDATA_NUM_SECTIONS; sectionIdx++) {
 		const uint8_t *section = NULL;
@@ -137,6 +142,25 @@ static int verify_savedata_slot(const uint8_t *savedata, uint32_t *sections_out,
 
 #define SIZE_64K (64 * 1024)
 
+static inline void slot2_sendFlashCommand(uint8_t cmd) {
+	SRAM[0x5555] = 0xaa;
+	swiDelay(10);
+	SRAM[0x2aaa] = 0x55;
+	swiDelay(10);
+	SRAM[0x5555] = cmd;
+	swiDelay(10);
+}
+
+static void slot2_eraseFlashSector(uint16_t sector) {
+	slot2_sendFlashCommand(0x80);
+	SRAM[0x5555] = 0xaa;
+	swiDelay(10);
+	SRAM[0x2aaa] = 0x55;
+	swiDelay(10);
+	SRAM[sector] = 0x30;
+	swiDelay(10);
+}
+
 static int readSlot2Save(uint8_t *out) {
 	sysSetBusOwners(true, true);
 	swiDelay(10);
@@ -144,13 +168,8 @@ static int readSlot2Save(uint8_t *out) {
 	// All main GBA Pokemon games use the SRAM type: FLASH1M_V103
 	// That 1 Mb (128 kB) save data is exactly 2 banks of 64k.
 	for (int bankIdx = 0; bankIdx < 2; bankIdx++) {
-		// Flash commands for switching banks
-		SRAM[0x5555] = 0xaa;
-		swiDelay(10);
-		SRAM[0x2aaa] = 0x55;
-		swiDelay(10);
-		SRAM[0x5555] = 0xb0;
-		swiDelay(10);
+		// Flash command for switching banks
+		slot2_sendFlashCommand(0xb0);
 		SRAM[0] = bankIdx;
 		swiDelay(10);
 
@@ -163,15 +182,58 @@ static int readSlot2Save(uint8_t *out) {
 	return 1;
 }
 
+static int writeSlot2Save(uint8_t *data, uint32_t seek, uint32_t size) {
+	if ((seek & 0xFFF) || (size & 0xFFF))
+		return 0;
+	for (uint32_t sector = seek; sector < seek + size; sector += 0x1000) {
+		uint16_t sectorInBank = sector & 0xFFFF;
+		uint8_t *src = data + (sector - seek);
+		uint8_t *dst = SRAM + sectorInBank;
 
-int load_savedata(FILE *fp) {
-	uint8_t *flash_dump;
+		if (sector == seek || sector == SIZE_64K) {
+			// Change bank
+			slot2_sendFlashCommand(0xb0);
+			SRAM[0] = sector >> 16;
+		}
+
+		// Erase sector
+		slot2_eraseFlashSector(sectorInBank);
+		while (SRAM[sectorInBank] != 0xFF)
+			swiDelay(10);
+
+		// Write bytes
+		for (uint16_t pos = 0; pos < 0x1000; pos++) {
+			uint8_t srcByte = *src;
+			slot2_sendFlashCommand(0xa0);
+			*dst = srcByte;
+			swiDelay(10);
+			while (*dst != srcByte)
+				swiDelay(10);
+			src++;
+			dst++;
+		}
+	}
+	return 1;
+}
+
+
+int load_savedata(const char *filename) {
+	FILE *fp;
+	uint8_t *flash_dump = NULL;
 	uint32_t saveidx_slots[2] = {UINT32_MAX, UINT32_MAX};
 	uint32_t sections_slot2[SAVEDATA_NUM_SECTIONS];
 
 	flash_dump = malloc(0x20000); // 128 kiB, too big for stack
 
-	if (fp) {
+	savedata_file = filename;
+	if (filename) {
+		fp = fopen(filename, "rb");
+		if (!fp) {
+			iprintf("Error opening save file:\n%s\n", filename);
+			free(flash_dump);
+			return 0;
+		}
+
 		// Save files are normally 128K, but the last 16K may be unused.
 		// Just in case any tools trim save files, we subtract 16K to get 0x1c000 (112K)
 		// 00000-0DFFF Save slot 1
@@ -182,8 +244,10 @@ int load_savedata(FILE *fp) {
 		if (fread(flash_dump, 1, 0x20000, fp) < 0x1c000) {
 			iprintf("This isn't a valid save file.\n");
 			free(flash_dump);
+			fclose(fp);
 			return 0;
 		}
+		fclose(fp);
 	} else {
 		if (!readSlot2Save(flash_dump)) {
 			iprintf("%s", flash_dump);
@@ -208,14 +272,69 @@ int load_savedata(FILE *fp) {
 		// This overflow comparison makes UINT32_MAX compare less than any valid value
 		memcpy(savedata_buffer, flash_dump, sizeof(savedata_buffer));
 		savedata_active_slot = 0;
+		savedata_index = saveidx_slots[0];
 	} else {
 		// The second savedata slot is more recent.
 		memcpy(savedata_buffer, flash_dump + sizeof(savedata_buffer), sizeof(savedata_buffer));
 		memcpy(savedata_sections, sections_slot2, sizeof(savedata_sections));
 		savedata_active_slot = 1;
+		savedata_index = saveidx_slots[1];
 	}
 	free(flash_dump);
 	return 1;
+}
+
+void update_section_checksum(int sectionIdx) {
+	uint32_t checksum = 0;
+	uint8_t *section = GET_SAVEDATA_SECTION(sectionIdx);
+	union SaveSlotFooter *footer;
+
+	// Footer is the last 16 bytes of each section
+	footer = ((union SaveSlotFooter*) (section + 0xFF0));
+
+	// Calculate checksum
+	for (long wordIdx = 0; wordIdx < 0xFF0 / 4; wordIdx++) {
+		uint32_t word = GET32(section, wordIdx * 4);
+		checksum += word;
+	}
+	checksum = (checksum & 0xFFFF) + (checksum >> 16);
+	checksum &= 0xFFFF;
+	footer->checksum = (uint16_t) checksum;
+}
+
+int write_savedata(void) {
+	int success = 1;
+	uint32_t seek;
+
+	iprintf("Saving...\n");
+
+	// Increment the save index in every section
+	for (int sectionIdx = 0; sectionIdx < SAVEDATA_NUM_SECTIONS; sectionIdx++) {
+		union SaveSlotFooter *footer =
+			(union SaveSlotFooter*) (GET_SAVEDATA_SECTION(sectionIdx) + 0xFF0);
+		footer->saveidx = savedata_index + 1;
+	}
+
+	// If the latest save data is in slot 0, write to slot 1, and vice-versa.
+	seek = savedata_active_slot ? 0 : 0xE000;
+
+	if (savedata_file) {
+		FILE *fp;
+		int rc;
+		fp = fopen(savedata_file, "r+b");
+		fseek(fp, savedata_active_slot ? 0 : 0xE000, SEEK_SET);
+		rc = fwrite(savedata_buffer, 1, sizeof(savedata_buffer), fp);
+		if (rc < sizeof(savedata_buffer)) {
+			iprintf("Error writing save file\n");
+			success = 0;
+		}
+		fclose(fp);
+	} else {
+		success = writeSlot2Save(savedata_buffer, seek, sizeof(savedata_buffer));
+	}
+
+	// Don't swap the slots or increment the index again in the same session
+	return success;
 }
 
 int load_box_savedata(uint8_t *box_data, int boxIdx) {
@@ -262,6 +381,22 @@ int load_boxes_savedata(uint8_t *box_data) {
 	memcpy(box_data, GET_SAVEDATA_SECTION(13), 0x744);
 
 	return activeBox;
+}
+
+int write_boxes_savedata(uint8_t *box_data) {
+	memcpy(GET_SAVEDATA_SECTION(5) + 4, box_data, 0xf7c);
+	box_data += 0xf7c;
+	for (int section = 6; section <= 12; section++) {
+		memcpy(GET_SAVEDATA_SECTION(section), box_data, 0xf80);
+		box_data += 0xf80;
+	}
+	memcpy(GET_SAVEDATA_SECTION(13), box_data, 0x744);
+
+	// Recalculate checksum for all box sections
+	for (int section = 5; section <= 13; section++) {
+		update_section_checksum(section);
+	}
+	return 1;
 }
 
 int pkm_is_shiny(const union pkm_t *pkm) {
