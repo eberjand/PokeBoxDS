@@ -16,9 +16,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
+
 #include <stdint.h>
 
-extern const uint8_t tilemap_pokeStatusPane[];
-extern const uint8_t tilemap_boxLeftButton[];
-extern const uint8_t tilemap_boxRightButton[];
-extern const uint8_t tilemap_blankWallpaper[];
+int sd_boxes_load(uint8_t *boxData, uint8_t group, uint8_t *numBoxes_out);
+int sd_boxes_save(uint8_t *boxData, uint8_t group, uint16_t numBoxes);

@@ -24,9 +24,12 @@
 #include "asset_manager.h"
 #include "console_helper.h"
 #include "cursor.h"
+#include "defWallpapers.h"
 #include "guiTileset.h"
 #include "gui_tilemaps.h"
+#include "pkmx_format.h"
 #include "savedata_gen3.h"
+#include "sd_boxes.h"
 
 /* VRAM layout:
  * 5000000-50001FF (512B) BG Palettes A (Top Screen)
@@ -115,28 +118,39 @@ static uint8_t frontSpriteData[8192];
 #define GUI_FLAG_HOLDING 0x02
 #define GUI_FLAG_HOLDING_MULTIPLE 0x04
 
-struct boxgui_state {
+struct boxgui_groupView {
+	uint8_t groupIdx;
+	int8_t activeBox;
+	uint8_t numBoxes;
+	uint8_t generation;
+	uint16_t pkmSize;
+	uint16_t boxSizeBytes;
 	char **boxNames;
 	uint8_t *boxWallpapers;
+	uint8_t *boxData;
+	uint16_t *boxIcons;
+};
+
+struct boxgui_state {
 	int8_t cursor_x;
 	int8_t cursor_y;
 	uint8_t flags;
 	uint8_t cursorMode; //TODO
-	int8_t activeBox;
-	int8_t activeBox2; //TODO
-	uint8_t numBoxes;
-	uint8_t numBoxes2; //TODO
+	struct boxgui_groupView topScreen;
+	struct boxgui_groupView botScreen;
 	int8_t holdingSourceBox;
-	uint8_t holdingSourceGroup; //TODO
+	uint8_t holdingSourceGroup;
 	int8_t holdingSource_x;
 	int8_t holdingSource_y;
 	int8_t holdingMin_x;
 	int8_t holdingMax_x;
 	int8_t holdingMin_y;
 	int8_t holdingMax_y;
-	uint16_t boxIcons[30 * 64];
+	uint16_t boxIcons1[32 * 30];
+	uint16_t boxIcons2[32 * 30];
 	uint16_t holdIcons[30];
-	uint8_t boxData[14 * BOX_SIZE_BYTES];
+	uint8_t boxData1[32 * BOX_SIZE_BYTES_X];
+	uint8_t boxData2[32 * BOX_SIZE_BYTES_X];
 };
 
 static void draw_gui_tilemap(const uint8_t *tilemap, uint8_t screen, uint8_t x, uint8_t y) {
@@ -157,7 +171,25 @@ static void draw_gui_tilemap(const uint8_t *tilemap, uint8_t screen, uint8_t x, 
 	}
 }
 
-static void status_display_update(const uint8_t *pkm_in) {
+static void draw_builtin_wallpaper(const uint8_t *tilemap, uint8_t screen, uint8_t x, uint8_t y) {
+	uint8_t width = tilemap[0];
+	uint8_t height = tilemap[1];
+	uint16_t *mapRam;
+	tilemap += 2;
+	if (screen) {
+		mapRam = BG_MAP_RAM_SUB(BG_MAPBASE_WALLPAPER);
+	} else {
+		mapRam = BG_MAP_RAM(BG_MAPBASE_WALLPAPER);
+	}
+	for (int rowIdx = 0; rowIdx < height; rowIdx++) {
+		for (int colIdx = 0; colIdx < width; colIdx++) {
+			uint16_t tspec = (4 << 12) | tilemap[rowIdx * width + colIdx];
+			mapRam[(rowIdx + y) * 32 + colIdx + x] = tspec;
+		}
+	}
+}
+
+static void status_display_update(const uint8_t *pkm_in, int generation) {
 	pkm3_t pkm;
 	uint16_t checksum;
 	u16 species;
@@ -167,7 +199,25 @@ static void status_display_update(const uint8_t *pkm_in) {
 	selectTopConsole();
 	consoleClear();
 
-	checksum = decode_pkm_encrypted_data(&pkm, pkm_in);
+	if (generation == 0) {
+		uint8_t curGen = pkm_in[0];
+		/* The other 3 bytes in PKMX are reserved for:
+		 *   curSubGen (eg distinguishing between RSE and FRLG)
+		 *   originGen (keeping track of generation conversions)
+		 *   originSubGen
+		 */
+		if (curGen == 3) {
+			checksum = decode_pkm_encrypted_data(&pkm, pkm_in + 4);
+		} else {
+			// Ignore Pokemon from any other generation.
+			// This allows some level of compatibility with future versions of PokeBoxDS.
+			pkm.species = 0;
+		}
+	} else if (generation == 3) {
+		checksum = decode_pkm_encrypted_data(&pkm, pkm_in);
+	} else {
+		pkm.species = 0;
+	}
 
 	if (pkm.species == 0) {
 		selectBottomConsole();
@@ -206,7 +256,7 @@ static void status_display_update(const uint8_t *pkm_in) {
 	activeSprite ^= 1;
 }
 
-static void display_cursor() {
+static void load_cursor() {
 	oamSub.oamMemory[0].attribute[0] = OBJ_Y(60) | ATTR0_COLOR_16;
 	oamSub.oamMemory[0].attribute[1] = OBJ_X(12) | ATTR1_SIZE_32;
 	oamSub.oamMemory[0].palette = 8;
@@ -276,33 +326,64 @@ static void clear_selection_shadow() {
 	}
 }
 
-static void decode_boxes(struct boxgui_state *guistate) {
+static void decode_boxes(struct boxgui_groupView *group) {
 	uint16_t checksum;
 	uint16_t species;
 	pkm3_t pkm;
-	for (int pkmIdx = 0; pkmIdx < 30 * 14; pkmIdx++) {
-		const uint8_t *bytes = guistate->boxData + pkmIdx * PKM3_SIZE;
+	for (int pkmIdx = 0; pkmIdx < 30 * group->numBoxes; pkmIdx++) {
+		const uint8_t *bytes;
+		int generation;
+		bytes = group->boxData + pkmIdx * group->pkmSize;
+		generation = group->generation;
+		if (generation == 0) {
+			generation = bytes[0];
+			bytes += 4;
+			if (generation == 0) {
+				// Blank space
+				group->boxIcons[pkmIdx] = 0;
+				continue;
+			}
+		}
+		if (generation != 3) {
+			// Question mark for other generations we can't decode yet
+			group->boxIcons[pkmIdx] = 252;
+			continue;
+		}
 		checksum = decode_pkm_encrypted_data(&pkm, bytes);
 		if (checksum != pkm.checksum)
 			species = 412; // Egg icon for Bad EGG
 		else
 			species = pkm_displayed_species(&pkm);
-		guistate->boxIcons[pkmIdx] = species;
+		group->boxIcons[pkmIdx] = species;
 	}
 }
 
 static void update_cursor(struct boxgui_state *guistate) {
 	int cur_poke = guistate->cursor_y * 6 + guistate->cursor_x;
-	oamSub.oamMemory[0].x = guistate->cursor_x * 24 + 12;
-	oamSub.oamMemory[0].y = guistate->cursor_y * 24 + 60;
-	if (guistate->flags & GUI_FLAG_HOLDING) {
-		move_icon_sprites(OAM_INDEX_HOLDING,
-			12 + guistate->holdingMin_x * 24,
-			48 + guistate->holdingMin_y * 24);
+	const struct boxgui_groupView *group;
+	int icons_x, icons_y;
+
+	group = &guistate->botScreen;
+
+	if (group->generation == 3) {
+		oamSub.oamMemory[0].x = guistate->cursor_x * 24 + 12;
+		oamSub.oamMemory[0].y = guistate->cursor_y * 24 + 60;
+		icons_x = 12 + guistate->holdingMin_x * 24;
+		icons_y = 48 + guistate->holdingMin_y * 24;
 	} else {
-		status_display_update(guistate->boxData +
-			guistate->activeBox * BOX_SIZE_BYTES +
-			cur_poke * PKM3_SIZE);
+		oamSub.oamMemory[0].x = guistate->cursor_x * 24 + 8;
+		oamSub.oamMemory[0].y = guistate->cursor_y * 24 + 60;
+		icons_x = 8 + guistate->holdingMin_x * 24;
+		icons_y = 48 + guistate->holdingMin_y * 24;
+	}
+
+	if (guistate->flags & GUI_FLAG_HOLDING) {
+		move_icon_sprites(OAM_INDEX_HOLDING, icons_x, icons_y);
+	} else {
+		status_display_update(guistate->botScreen.boxData +
+			guistate->botScreen.activeBox * guistate->botScreen.boxSizeBytes +
+			cur_poke * guistate->botScreen.pkmSize,
+			guistate->botScreen.generation);
 	}
 	clear_selection_shadow();
 	if (guistate->flags & (GUI_FLAG_SELECTING | GUI_FLAG_HOLDING)) {
@@ -316,20 +397,44 @@ static void update_cursor(struct boxgui_state *guistate) {
 				BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS)[rowIdx * 32 + colIdx] = tspec;
 			}
 		}
+		if (group->generation != 3) {
+			for (uint8_t rowIdx = min_y; rowIdx < max_y - 1; rowIdx++) {
+				uint16_t tspec = (8 << 12) | 0x21;
+				BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS)[rowIdx * 32 + min_x - 1] = tspec;
+				BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS)[rowIdx * 32 + max_x - 1] = tspec + 1;
+			}
+		}
 	}
 }
 
 static int display_box(const struct boxgui_state *guistate) {
-	char *name = guistate->boxNames[guistate->activeBox];
-	int wallpaper = guistate->boxWallpapers[guistate->activeBox];
+	char *name;
 	int rc;
+	const struct boxgui_groupView *group;
+	char namebuf[16];
 
-	// Calling loadWallpaper first helps prevent tearing, since loadWallpaper is
-	// much slower when loading from ROM files than Slot-2 carts.
-	rc = loadWallpaper(wallpaper);
+	group = &guistate->botScreen;
+	if (group->boxNames) {
+		name = group->boxNames[group->activeBox];
+	} else {
+		sprintf(namebuf, "BOX %d", group->activeBox + 1);
+		name = namebuf;
+	}
+	rc = 0;
+	if (group->boxWallpapers) {
+		int wallpaper;
+		wallpaper = group->boxWallpapers[group->activeBox];
+		rc = loadWallpaper(wallpaper);
+	}
 
 	selectBottomConsole();
-	iprintf("\x1b[7;5H\x1b[30;0m%-8s\x1b[39;0m", name);
+	if (group->generation == 3) {
+		iprintf("\x1b[6;5H\x1b[30;0m%-8s\x1b[39;0m", "");
+		iprintf("\x1b[7;5H\x1b[30;0m%-8s\x1b[39;0m", name);
+	} else {
+		iprintf("\x1b[6;5H\x1b[30;0m%-8s\x1b[39;0m", name);
+		iprintf("\x1b[7;5H\x1b[30;0m%-8s\x1b[39;0m", "");
+	}
 
 	bgInit(BG_LAYER_BUTTONS, BgType_Text4bpp, BgSize_T_256x256,
 		BG_MAPBASE_BUTTONS, BG_TILEBASE_BUTTONS);
@@ -347,12 +452,16 @@ static int display_box(const struct boxgui_state *guistate) {
 	memcpy((uint8_t*) BG_PALETTE_SUB + 32 * 8, guiTilesetPal, sizeof(guiTilesetPal));
 
 	draw_gui_tilemap(tilemap_pokeStatusPane, 1, 21, 0);
-	draw_gui_tilemap(tilemap_boxLeftButton, 1, 1, 6);
-	draw_gui_tilemap(tilemap_boxRightButton, 1, 19, 6);
+	if (group->generation == 3) {
+		draw_gui_tilemap(tilemap_boxLeftButton, 1, 1, 6);
+		draw_gui_tilemap(tilemap_boxRightButton, 1, 19, 6);
+	} else {
+		draw_gui_tilemap(tilemap_boxLeftButton, 1, 1, 5);
+		draw_gui_tilemap(tilemap_boxRightButton, 1, 18, 5);
+	}
 
 	if (rc) {
 		int wallpaperPalOffset = 4;
-		memset(BG_MAP_RAM_SUB(BG_MAPBASE_WALLPAPER), 0, 2048);
 		memcpy(BG_TILE_RAM_SUB(BG_TILEBASE_WALLPAPER), wallpaperTiles, sizeof(wallpaperTiles));
 		memcpy((uint8_t*) BG_PALETTE_SUB + 32 * wallpaperPalOffset,
 			wallpaperPal, sizeof(wallpaperPal));
@@ -366,24 +475,53 @@ static int display_box(const struct boxgui_state *guistate) {
 				BG_MAP_RAM_SUB(BG_MAPBASE_WALLPAPER)[(rowIdx + 6) * 32 + colIdx + 1] = tspec;
 			}
 		}
+	} else {
+		memcpy(BG_TILE_RAM_SUB(BG_TILEBASE_WALLPAPER), defWallpapersTiles,
+			sizeof(defWallpapersTiles));
+		memcpy((uint8_t*) BG_PALETTE_SUB + 32 * 4, defWallpapersPal, sizeof(defWallpapersPal));
+		draw_builtin_wallpaper(tilemap_blankWallpaper, 1, 0, 5);
 	}
 
-	return display_icon_sprites(
-		guistate->boxIcons + guistate->activeBox * 30,
+	int icons_x, icons_y;
+	if (group->generation == 3) {
+		icons_x = 12;
+		icons_y = 60;
+	} else {
+		icons_x = 8;
+		icons_y = 60;
+	}
+
+	rc = display_icon_sprites(
+		group->boxIcons + group->activeBox * 30,
 		OAM_INDEX_CURBOX, OBJ_GFXIDX_CURBOX,
-		12, 60);
+		icons_x, icons_y);
+	return rc;
 }
 
 static int switch_box(struct boxgui_state *guistate, int rel) {
-	int activeBox = guistate->activeBox + rel;
+	struct boxgui_groupView *group;
+	int activeBox;
+
+	group = &guistate->botScreen;
+	activeBox = group->activeBox + rel;
+
 	if (activeBox < 0)
-		activeBox = 13;
-	else if (activeBox > 13)
+		activeBox = group->numBoxes - 1;
+	else if (activeBox >= group->numBoxes)
 		activeBox = 0;
-	guistate->activeBox = activeBox;
+	group->activeBox = activeBox;
 	display_box(guistate);
 	update_cursor(guistate);
 	return 1;
+}
+
+static void swap_screens(struct boxgui_state *guistate) {
+	struct boxgui_groupView tmpGroup;
+	tmpGroup = guistate->topScreen;
+	guistate->topScreen = guistate->botScreen;
+	guistate->botScreen = tmpGroup;
+	display_box(guistate);
+	update_cursor(guistate);
 }
 
 static void move_cursor_x(struct boxgui_state *guistate, int rel) {
@@ -488,33 +626,60 @@ static void pickup_selection(struct boxgui_state *guistate) {
 	int height = guistate->holdingMax_y - guistate->holdingMin_y + 1;
 	int dx = guistate->holdingMin_x;
 	int dy = guistate->holdingMin_y;
-	uint16_t *curBoxIcons = guistate->boxIcons + 30 * guistate->activeBox;
+	int icons_x, icons_y;
+	struct boxgui_groupView *group = &guistate->botScreen;
+	uint16_t *curBoxIcons = group->boxIcons + 30 * group->activeBox;
+	int isPopulated = 0;
 
 	if (width * height > 1)
 		flags |= GUI_FLAG_HOLDING_MULTIPLE;
 	guistate->flags = flags;
-	guistate->holdingSourceBox = guistate->activeBox;
+	guistate->holdingSourceBox = group->activeBox;
+	guistate->holdingSourceGroup = group->groupIdx;
 	guistate->holdingSource_x = guistate->holdingMin_x;
 	guistate->holdingSource_y = guistate->holdingMin_y;
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
-			guistate->holdIcons[y * 6 + x] = curBoxIcons[(y + dy) * 6 + (x + dx)];
+			uint16_t tmp;
+			tmp = guistate->holdIcons[y * 6 + x] = curBoxIcons[(y + dy) * 6 + (x + dx)];
 			curBoxIcons[(y + dy) * 6 + (x + dx)] = 0;
+			if (tmp)
+				isPopulated = 1;
 		}
 	}
+
+	// Lose the selection if nothing is actually there
+	if (!isPopulated)
+		guistate->flags = 0;
+
+	if (group->generation == 3) {
+		icons_x = 12 + 24 * dx;
+		icons_y = 48 + 24 * dy;
+	} else {
+		icons_x = 8 + 24 * dx;
+		icons_y = 48 + 24 * dy;
+	}
+
 	display_icon_sprites(
 		guistate->holdIcons, OAM_INDEX_HOLDING, OBJ_GFXIDX_HOLDING,
-		12 + 24 * dx, 48 + 24 * dy);
+		icons_x, icons_y);
 	display_box(guistate);
 	update_cursor(guistate);
 }
 
+// Drop the held Pokemon back where they came from
 static void drop_holding(struct boxgui_state *guistate) {
 	int width  = guistate->holdingMax_x - guistate->holdingMin_x + 1;
 	int height = guistate->holdingMax_y - guistate->holdingMin_y + 1;
 	int sx = guistate->holdingSource_x;
 	int sy = guistate->holdingSource_y;
-	uint16_t *srcBoxIcons = guistate->boxIcons + 30 * guistate->holdingSourceBox;
+	struct boxgui_groupView *group = &guistate->botScreen;
+	struct boxgui_groupView *srcGroup = group;
+	uint16_t *srcBoxIcons;
+
+	if (group->groupIdx != guistate->holdingSourceGroup)
+		srcGroup = &guistate->topScreen;
+	srcBoxIcons = srcGroup->boxIcons + 30 * guistate->holdingSourceBox;
 
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
@@ -525,7 +690,7 @@ static void drop_holding(struct boxgui_state *guistate) {
 
 	guistate->cursor_x += guistate->holdingSource_x - guistate->holdingMin_x;
 	guistate->cursor_y += guistate->holdingSource_y - guistate->holdingMin_y;
-	guistate->activeBox = guistate->holdingSourceBox;
+	srcGroup->activeBox = guistate->holdingSourceBox;
 	guistate->flags = 0;
 	clear_icon_sprites(OAM_INDEX_HOLDING);
 
@@ -541,16 +706,26 @@ static void store_holding(struct boxgui_state *guistate) {
 	int sx = guistate->holdingSource_x;
 	int sy = guistate->holdingSource_y;
 	int x_start, x_iter, x_end, y_start, y_iter, y_end;
-	uint16_t *dstBoxIcons = guistate->boxIcons + guistate->activeBox * 30;
-	uint16_t *srcBoxIcons = guistate->boxIcons + guistate->holdingSourceBox * 30;
-	uint8_t *dstBoxData = guistate->boxData + guistate->activeBox * BOX_SIZE_BYTES;
-	uint8_t *srcBoxData = guistate->boxData + guistate->holdingSourceBox * BOX_SIZE_BYTES;
+	struct boxgui_groupView *srcGroup, *dstGroup;
+	uint16_t *dstBoxIcons, *srcBoxIcons;
+	uint8_t *dstBoxData, *srcBoxData;
+
+	dstGroup = &guistate->botScreen;
+	if (guistate->holdingSourceGroup == guistate->botScreen.groupIdx) {
+		srcGroup = &guistate->botScreen;
+	} else {
+		srcGroup = &guistate->topScreen;
+	}
+	dstBoxIcons = dstGroup->boxIcons + dstGroup->activeBox * 30;
+	srcBoxIcons = srcGroup->boxIcons + guistate->holdingSourceBox * 30;
+	dstBoxData = dstGroup->boxData + dstGroup->activeBox * dstGroup->boxSizeBytes;
+	srcBoxData = srcGroup->boxData + guistate->holdingSourceBox * srcGroup->boxSizeBytes;
 
 	if (guistate->flags & GUI_FLAG_HOLDING_MULTIPLE) {
 		// Do nothing if any spot in the destination is occupied.
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
-				if (dstBoxIcons[(y + dy) * 6 + (x + dx)])
+				if (dstBoxIcons[(y + dy) * 6 + (x + dx)] && guistate->holdIcons[y * 6 + x])
 					return;
 			}
 		}
@@ -579,24 +754,57 @@ static void store_holding(struct boxgui_state *guistate) {
 	// Swap the contents of holdingSource and the destination
 	for (int y = y_start; y != y_end; y += y_iter) {
 		for (int x = x_start; x != x_end; x += x_iter) {
-			uint8_t tmpPkm[PKM3_SIZE];
+			uint8_t *srcPkm;
+			uint8_t *dstPkm;
+			uint8_t tmpPkm1[PKMX_SIZE];
+			uint8_t tmpPkm2[PKMX_SIZE];
 			int srcIdx, dstIdx;
+
+			if (guistate->holdIcons[y * 6 + x] == 0)
+				continue;
 
 			srcIdx = (y + sy) * 6 + (x + sx);
 			dstIdx = (y + dy) * 6 + (x + dx);
 
+			srcPkm = srcBoxData + srcIdx * srcGroup->pkmSize;
+			dstPkm = dstBoxData + dstIdx * dstGroup->pkmSize;
+
 			srcBoxIcons[srcIdx] = dstBoxIcons[dstIdx];
 			dstBoxIcons[dstIdx] = guistate->holdIcons[y * 6 + x];
 
-			memcpy(tmpPkm, dstBoxData + dstIdx * PKM3_SIZE, PKM3_SIZE);
-			memcpy(dstBoxData + dstIdx * PKM3_SIZE, srcBoxData + srcIdx * PKM3_SIZE, PKM3_SIZE);
-			memcpy(srcBoxData + srcIdx * PKM3_SIZE, tmpPkm, PKM3_SIZE);
+			pkm_to_pkmx(tmpPkm1, srcPkm, srcGroup->generation);
+			pkm_to_pkmx(tmpPkm2, dstPkm, dstGroup->generation);
+
+			// If unable to put a Pokemon down, keep it in holding
+			if (!pkmx_convert_generation(tmpPkm1, dstGroup->generation))
+				continue;
+			if (!pkmx_convert_generation(tmpPkm2, srcGroup->generation))
+				continue;
+
+			// TODO Save any lost-in-conversion data when depositing to a game
+			// ...after implementing any actual generation conversions
+			pkmx_to_pkm(dstPkm, tmpPkm1, dstGroup->generation);
+			pkmx_to_pkm(srcPkm, tmpPkm2, srcGroup->generation);
+
+			// Clear this Pokemon from the holding list
+			guistate->holdIcons[y * 6 + x] = 0;
+			SpriteEntry *oam = &oamSub.oamMemory[OAM_INDEX_HOLDING + y * 6 + x];
+			oam->attribute[0] = 0;
+			oam->attribute[1] = 0;
+			oam->attribute[2] = 0;
 		}
 	}
 
-	guistate->flags = 0;
-	memset(guistate->holdIcons, 0, sizeof(guistate->holdIcons));
-	clear_icon_sprites(OAM_INDEX_HOLDING);
+	int isStillHolding = 0;
+	for (int i = 0; i < 30; i++) {
+		if (guistate->holdIcons[i]) {
+			isStillHolding = 1;
+			break;
+		}
+	}
+
+	if (!isStillHolding)
+		guistate->flags = 0;
 
 	display_box(guistate);
 	update_cursor(guistate);
@@ -619,9 +827,6 @@ void open_boxes_gui() {
 	vramSetBankC(VRAM_C_SUB_BG);
 	vramSetBankD(VRAM_D_SUB_SPRITE);
 
-	oamInit(&oamMain, SpriteMapping_1D_128, false);
-	oamInit(&oamSub, SpriteMapping_1D_128, false);
-
 	initConsoles();
 	clearConsoles();
 
@@ -637,19 +842,43 @@ void open_boxes_gui() {
 
 	// Initial GUI state
 	guistate = calloc(1, sizeof(struct boxgui_state));
-	guistate->boxNames = box_names;
-	guistate->boxWallpapers = GET_SAVEDATA_SECTION(13) + 0x7C2;
-	guistate->activeBox = load_boxes_savedata(guistate->boxData);
+	guistate->botScreen.boxNames = box_names;
+	guistate->botScreen.boxWallpapers = GET_SAVEDATA_SECTION(13) + 0x7C2;
+	guistate->botScreen.groupIdx = 0x40;
+	guistate->botScreen.generation = 3;
+	guistate->botScreen.numBoxes = 14;
+	guistate->botScreen.pkmSize = PKM3_SIZE;
+	guistate->botScreen.boxSizeBytes = PKM3_SIZE * 30;
+	guistate->botScreen.activeBox = load_boxes_savedata(guistate->boxData1);
+	guistate->botScreen.boxData = guistate->boxData1;
+	guistate->botScreen.boxIcons = guistate->boxIcons1;
+	guistate->topScreen.groupIdx = 0;
+	guistate->topScreen.generation = 0;
+	guistate->topScreen.numBoxes = 32;
+	guistate->topScreen.boxData = guistate->boxData2;
+	guistate->topScreen.boxIcons = guistate->boxIcons2;
+	guistate->topScreen.pkmSize = PKMX_SIZE;
+	guistate->topScreen.boxSizeBytes = PKMX_SIZE * 30;
+
+	if (!sd_boxes_load(guistate->topScreen.boxData, 0, &guistate->topScreen.numBoxes)) {
+		free(guistate);
+		iprintf("Error loading from SD card\n");
+		wait_for_button();
+	}
+
+	oamInit(&oamMain, SpriteMapping_1D_128, false);
+	oamInit(&oamSub, SpriteMapping_1D_128, false);
 
 	// Load all Pokemon box icon palettes into VRAM
 	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE, 32 * 3);
 	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE_SUB, 32 * 3);
 
 	// Initial display
-	display_cursor();
-	decode_boxes(guistate);
+	load_cursor();
+	decode_boxes(&guistate->botScreen);
+	decode_boxes(&guistate->topScreen);
 	display_box(guistate);
-	status_display_update(guistate->boxData + guistate->activeBox * BOX_SIZE_BYTES);
+	update_cursor(guistate);
 	oamUpdate(&oamMain);
 	oamUpdate(&oamSub);
 	keysSetRepeat(20, 10);
@@ -671,6 +900,10 @@ void open_boxes_gui() {
 				drop_holding(guistate);
 			} else {
 				break;
+			}
+		} else if (keys & KEY_X) {
+			if ((guistate->flags & GUI_FLAG_SELECTING) == 0) {
+				swap_screens(guistate);
 			}
 		}
 		if ((keysHeld() & KEY_A) == 0 && (guistate->flags & GUI_FLAG_SELECTING)) {
@@ -697,8 +930,10 @@ void open_boxes_gui() {
 	oamDisable(&oamSub);
 	clearConsoles();
 	selectTopConsole();
-	write_boxes_savedata(guistate->boxData);
-	if (!write_savedata()) {
+	write_boxes_savedata(guistate->boxData1);
+	if (!sd_boxes_save(guistate->boxData2, 0, 32))
+		wait_for_button();
+	else if (!write_savedata()) {
 		wait_for_button();
 	}
 	free(guistate);

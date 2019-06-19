@@ -343,20 +343,20 @@ int load_box_savedata(uint8_t *box_data, int boxIdx) {
 	// First 4 bytes of PC buffer is the most recently viewed PC box number
 	if (boxIdx < 0)
 		boxIdx = GET32(GET_SAVEDATA_SECTION(5), 0);
-	box_offset = boxIdx * BOX_SIZE_BYTES + 4;
+	box_offset = boxIdx * BOX_SIZE_BYTES_3 + 4;
 
 	// The actual save data only stores 0xf80 bytes in each section.
 	size_t section = 5 + box_offset / 0xf80;
 	size_t box_mod = box_offset % 0xf80;
-	if (box_mod <= 0xf80 - BOX_SIZE_BYTES) {
+	if (box_mod <= 0xf80 - BOX_SIZE_BYTES_3) {
 		// Only need to read this box's data from one section
-		memcpy(box_data, GET_SAVEDATA_SECTION(section) + box_mod, BOX_SIZE_BYTES);
+		memcpy(box_data, GET_SAVEDATA_SECTION(section) + box_mod, BOX_SIZE_BYTES_3);
 	} else {
 		// This box's data is split between two sections
 		uint32_t bytesFromFirst = 0xf80 - box_mod;
 		memcpy(box_data, GET_SAVEDATA_SECTION(section) + box_mod, bytesFromFirst);
 		memcpy(box_data + bytesFromFirst, GET_SAVEDATA_SECTION(section + 1),
-			BOX_SIZE_BYTES - bytesFromFirst);
+			BOX_SIZE_BYTES_3 - bytesFromFirst);
 	}
 	return boxIdx;
 }

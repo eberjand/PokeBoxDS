@@ -73,7 +73,7 @@ void open_boxes() {
 	const int NUM_BOXES = 14;
 	char box_names[9 * NUM_BOXES];
 	char *box_name;
-	uint8_t box_data[BOX_SIZE_BYTES];
+	uint8_t box_data[BOX_SIZE_BYTES_3];
 	struct ConsoleMenuItem box_menu[NUM_BOXES];
 	memcpy(box_names, GET_SAVEDATA_SECTION(13) + 0x744, sizeof(box_names));
 	box_name = box_names;

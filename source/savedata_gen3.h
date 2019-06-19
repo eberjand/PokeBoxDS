@@ -21,7 +21,7 @@
 #include <stddef.h>
 
 // 30 Pokemon per box, 80 bytes per Pokemon
-#define BOX_SIZE_BYTES (30 * 80)
+#define BOX_SIZE_BYTES_3 (30 * 80)
 #define PKM3_SIZE 80
 
 #define SAVEDATA_NUM_SECTIONS 14
