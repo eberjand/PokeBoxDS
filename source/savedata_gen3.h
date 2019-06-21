@@ -62,6 +62,8 @@ union pkm_t {
 };
 typedef union pkm_t pkm3_t;
 
+#define PKM3_IS_EGG(pkm) ((pkm).IVs >> 30 & 1)
+
 extern uint8_t savedata_buffer[SAVEDATA_NUM_SECTIONS * 0x1000]; // 56 kiB
 extern uint32_t savedata_sections[SAVEDATA_NUM_SECTIONS];
 extern int savedata_active_slot;

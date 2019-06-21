@@ -32,9 +32,6 @@
 
 #define ROM_OFFSET_MASK 0xFFFFFF
 
-#define IS_RUBY_SAPPHIRE (activeGameId == 0 || activeGameId == 1)
-#define IS_FIRERED_LEAFGREEN (activeGameId == 2 || activeGameId == 3)
-
 uint8_t wallpaperTiles[0x1000];
 uint16_t wallpaperTilemap[0x2d0];
 uint16_t wallpaperPal[16 * 4];
@@ -73,6 +70,7 @@ struct rom_offsets_t {
 	void *frontSpriteTable;
 	void *wallpaperTable;
 };
+
 // I found most of these offsets by figuring out what data I'm interested in
 // for one ROM, following a pointer from the table to reach data that doesn't
 // include a pointer (not affected by offsets), then searching for a few bytes

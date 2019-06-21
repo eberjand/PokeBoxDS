@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include "asset_manager.h"
 #include "pokemon_strings.h"
 #include "string_gen3.h"
 #include "util.h"
@@ -222,6 +223,7 @@ int load_savedata(const char *filename) {
 	uint8_t *flash_dump = NULL;
 	uint32_t saveidx_slots[2] = {UINT32_MAX, UINT32_MAX};
 	uint32_t sections_slot2[SAVEDATA_NUM_SECTIONS];
+	int hasPokedex = 0;
 
 	flash_dump = malloc(0x20000); // 128 kiB, too big for stack
 
@@ -281,6 +283,19 @@ int load_savedata(const char *filename) {
 		savedata_index = saveidx_slots[1];
 	}
 	free(flash_dump);
+
+	// Make sure the Pokedex is obtained
+	if (IS_RUBY_SAPPHIRE) {
+		hasPokedex = (GET_SAVEDATA_SECTION(2)[0x3A0] & 2) != 0;
+	} else if (IS_EMERALD) {
+		hasPokedex = (GET_SAVEDATA_SECTION(2)[0x3FC] & 2) != 0;
+	} else if (IS_FIRERED_LEAFGREEN) {
+		hasPokedex = (GET_SAVEDATA_SECTION(2)[0x65] & 2) != 0;
+	}
+	if (!hasPokedex) {
+		iprintf("You need to obtain the Pokedex\n");
+		return 0;
+	}
 	return 1;
 }
 
@@ -383,7 +398,90 @@ int load_boxes_savedata(uint8_t *box_data) {
 	return activeBox;
 }
 
+static int register_boxes_to_pokedex(const uint8_t *box_data) {
+	uint8_t pokedex[386/8+1] = {0};
+	pkm3_t pkm;
+	int addedEntries = 0;
+	uint32_t unownPersonality = 0;
+	uint32_t spindaPersonality = 0;
+	uint8_t *saveDexOwn, *saveDexSeen1, *saveDexSeen2, *saveDexSeen3;
+
+	// Get the list of all species that exist in the PC boxes
+	for (int i = 0; i < 14 * 30; i++) {
+		uint16_t dexnum;
+		decode_pkm_encrypted_data(&pkm, box_data + i * PKM3_SIZE);
+		dexnum = gen3_index_to_pokedex(pkm.species);
+		// Ignore eggs
+		if (PKM3_IS_EGG(pkm))
+			continue;
+		if (dexnum == 201 && !unownPersonality)
+			unownPersonality = pkm.personality;
+		if (dexnum == 327 && !spindaPersonality)
+			spindaPersonality = pkm.personality;
+		if (dexnum) {
+			dexnum--;
+			pokedex[dexnum / 8] |= 1 << (dexnum & 7);
+		}
+	}
+
+	// Get pointers to all the Own and Seen lists based on which game is in use
+	saveDexOwn = GET_SAVEDATA_SECTION(0) + 0x28;
+	saveDexSeen1 = GET_SAVEDATA_SECTION(0) + 0x5C;
+
+	if (IS_RUBY_SAPPHIRE) {
+		saveDexSeen2 = GET_SAVEDATA_SECTION(1) + 0x938;
+		saveDexSeen3 = GET_SAVEDATA_SECTION(4) + 0xC0C;
+		// Unlock the National Dex
+		GET_SAVEDATA_SECTION(0)[0x19] = 1;
+		GET_SAVEDATA_SECTION(0)[0x1A] = 0xDA;
+		GET_SAVEDATA_SECTION(2)[0x3A6] |= 0x40;
+		SET16(GET_SAVEDATA_SECTION(2), 0x44C) = 0x302;
+	} else if (IS_EMERALD) {
+		saveDexSeen2 = GET_SAVEDATA_SECTION(1) + 0x988;
+		saveDexSeen3 = GET_SAVEDATA_SECTION(4) + 0xCA4;
+	} else /* IS_FIRERED_LEAFGREEN */ {
+		saveDexSeen2 = GET_SAVEDATA_SECTION(1) + 0x5F8;
+		saveDexSeen3 = GET_SAVEDATA_SECTION(4) + 0xB98;
+	}
+
+	// Save the forms for Unown (#201) and Spinda (#327) if not already owned
+	if (unownPersonality && (saveDexOwn[(201-1)/8] & (1 << ((201-1) & 7))) == 0)
+		SET32(GET_SAVEDATA_SECTION(0), 0x1C) = unownPersonality;
+	if (spindaPersonality && (saveDexOwn[(327-1)/8] & (1 << ((327-1) & 7))) == 0)
+		SET32(GET_SAVEDATA_SECTION(0), 0x20) = spindaPersonality;
+
+	// Add each Pokemon to all the Own and Seen lists
+	for (int dexByteIdx = 0; dexByteIdx < sizeof(pokedex); dexByteIdx++) {
+		uint8_t dexByte = pokedex[dexByteIdx];
+		uint8_t addingBits = dexByte & ~(saveDexOwn[dexByteIdx]);
+		if (addingBits) {
+			saveDexOwn[dexByteIdx] |= dexByte;
+			saveDexSeen1[dexByteIdx] |= dexByte;
+			saveDexSeen2[dexByteIdx] |= dexByte;
+			saveDexSeen3[dexByteIdx] |= dexByte;
+			// Count how many Pokemon weren't already marked as owned
+			while (addingBits) {
+				if ((addingBits & 1))
+					addedEntries++;
+				addingBits >>= 1;
+			}
+		}
+	}
+	update_section_checksum(0);
+	update_section_checksum(2);
+	update_section_checksum(1);
+	update_section_checksum(4);
+	return addedEntries;
+}
+
 int write_boxes_savedata(uint8_t *box_data) {
+	int rc;
+
+	// Register all stored Pokemon to the Pokedex
+	rc = register_boxes_to_pokedex(box_data);
+	if (rc)
+		iprintf("%d Pokemon added to the Pokedex\n", rc);
+
 	memcpy(GET_SAVEDATA_SECTION(5) + 4, box_data, 0xf7c);
 	box_data += 0xf7c;
 	for (int section = 6; section <= 12; section++) {
@@ -396,6 +494,7 @@ int write_boxes_savedata(uint8_t *box_data) {
 	for (int section = 5; section <= 13; section++) {
 		update_section_checksum(section);
 	}
+
 	return 1;
 }
 
@@ -426,7 +525,7 @@ int pkm_get_language(const union pkm_t *pkm) {
 uint16_t pkm_displayed_species(const union pkm_t *pkm) {
 	uint16_t species = pkm->species;
 	uint32_t personality = pkm->personality;
-	if (pkm->language == 0x601) {
+	if (PKM3_IS_EGG(*pkm)) {
 		species = SPECIES_EGG;
 	} else if (species == SPECIES_UNOWN_A) {
 		uint32_t letterDet = 0;
@@ -469,7 +568,7 @@ int print_pokemon_details(const union pkm_t *pkm) {
 
 	nickname[decode_gen3_string(nickname, pkm->nickname, 10, pkm->language)] = 0;
 	trainer[decode_gen3_string(trainer, pkm->trainerName, 7, pkm->language)] = 0;
-	uint16_t pokedex_no = get_pokedex_number(pkm->species);
+	uint16_t pokedex_no = gen3_index_to_pokedex(pkm->species);
 	if (pkm->species == 0) {
 		iprintf("  0              (Empty Space)\n");
 		return 0;
@@ -477,7 +576,7 @@ int print_pokemon_details(const union pkm_t *pkm) {
 	const char *species_name;
 	species_name = get_species_name_by_index(pkm->species);
 	int is_shiny = pkm_is_shiny(pkm);
-	if (pkm->language == 0x0601) {
+	if (PKM3_IS_EGG(*pkm)) {
 		iprintf("%3d %cEGG for a %s\n", pokedex_no, is_shiny ? '*' : ' ', species_name);
 	}
 	else {
@@ -493,10 +592,10 @@ int print_pokemon_details(const union pkm_t *pkm) {
 		iprintf("%3d %c%-10s  %-10s  %3s",
 			pokedex_no, is_shiny ? '*' : ' ', nickname, species_name, lang_str);
 	}
-	iprintf("OT  %-7s (%s) - %5ld [%5ld]\n",
+	iprintf("OT  %-7s (%s) - %05ld [%05ld]\n",
 		trainer, (pkm->origins & 0x8000) ? "F" : "M",
 		pkm->trainerId & 0xFFFF, pkm->trainerId >> 16);
-	const char *location_name = get_location_name(pkm->met_location);
+	const char *location_name = get_location_name(pkm->met_location, pkm->origins >> 7 & 0xF);
 	if (location_name)
 		iprintf("Met: %-27s", location_name);
 	else

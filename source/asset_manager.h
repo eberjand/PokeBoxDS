@@ -27,6 +27,10 @@ extern const char *activeGameNameShort;
 extern int activeGameId;
 extern int activeGameLanguage;
 
+#define IS_RUBY_SAPPHIRE (activeGameId == 0 || activeGameId == 1)
+#define IS_FIRERED_LEAFGREEN (activeGameId == 2 || activeGameId == 3)
+#define IS_EMERALD (activeGameId == 4)
+
 void assets_init_placeholder();
 _Bool assets_init_cart();
 _Bool assets_init_romfile(const char *file);

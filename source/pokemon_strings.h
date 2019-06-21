@@ -19,7 +19,8 @@
 #include <stdint.h>
 
 const char* get_species_name_by_index(unsigned index);
-uint16_t get_pokedex_number(unsigned index);
-const char* get_location_name(unsigned index);
+uint16_t gen3_index_to_pokedex(unsigned index);
+uint16_t gen3_pokedex_to_index(unsigned species);
+const char* get_location_name(unsigned index, unsigned origin_game);
 const char* get_item_name(unsigned index);
 const char* get_move_name(unsigned index);

@@ -1422,7 +1422,13 @@ static const char *const location_names[] = {
 	"Trainer Hill"
 };
 
-static const short idx301_to_dex[] = {
+static const short index2dex_table_gen3[] = {
+	// Treecko, Grovyle, Sceptile, Torchic, Combusken, Blaziken, Mudkip, Marshtomp
+	252, 253, 254, 255, 256, 257, 258, 259,
+	// Sampert, Poochyena, Mightyena, Zigzagoon, Wurmple, Silcoon, Beautifly, Cascoon
+	260, 261, 262, 263, 264, 265, 266, 267,
+	// Dustox, Lotad, Lombre, Ludicolo, Seedot, Nuzleaf, Shiftry
+	268, 269, 270, 271, 272, 273, 274, 275,
 	// Nincada, Ninjask, Shedinja, Taillow, Swellow, Shroomish, Breloom, Spinda
 	290, 291, 292, 276, 277, 285, 286, 327,
 	// Wingull, Pelipper, Surskit, Masquerain, Wailmer, Wailord, Skitty, Delcatty
@@ -1444,7 +1450,7 @@ static const short idx301_to_dex[] = {
 	// Clamperl, Huntail, Gorebyss, Absol, Shuppet, Banette, Seviper, Zangoose
 	366, 367, 368, 359, 353, 354, 336, 335,
 	// Relicanth, Aron, Lairon, Aggron, Castform, Volbeat, Illumise, Lileep
-	369, 305, 306, 307, 351, 313, 314, 345,
+	369, 304, 305, 306, 351, 313, 314, 345,
 	// Cradily, Anorith, Armaldo, Ralts, Kirlia, Gardevoir, Bagon, Shelgon
 	346, 347, 348, 280, 281, 282, 371, 372,
 	// Salamence, Beldum, Regirock, Regice, Registeel, Kyogre
@@ -1453,32 +1459,79 @@ static const short idx301_to_dex[] = {
 	383, 384, 380, 381, 385, 386, 358, 0,
 };
 
+static const short dex2index_table_gen3[] = {
+	// Treecko, Grovyle, Sceptile, Torchic, Combusken, Blaziken, Mudkip, Marshtomp
+	277, 278, 279, 280, 281, 282, 283, 284,
+	// Sampert, Poochyena, Mightyena, Zigzagoon, Wurmple, Silcoon, Beautifly, Cascoon
+	285, 286, 287, 288, 289, 290, 291, 292,
+	// Dustox, Lotad, Lombre, Ludicolo, Seedot, Nuzleaf, Shiftry
+	293, 294, 295, 296, 297, 298, 299, 300,
+	// Taillow, Swellow, Wingull, Pelipper, Ralts, Kirlia, Gardevoir, Surskit
+	304, 305, 309, 310, 392, 393, 394, 311,
+	// Masquerain, Shroomish, Breloom, Slakoth, Vigorith, Slaking, Nincada, Ninjask
+	312, 306, 307, 364, 365, 366, 301, 302,
+	// Shedinja, Whismur, Loudred, Exploud, Makuhita, Hariyama, Azurill, Nosepass
+	303, 370, 371, 372, 335, 336, 350, 320,
+	// Skitty, Delcatty, Sableye, Mawile, Aron, Lairon, Aggron, Meditite
+	315, 316, 322, 355, 382, 383, 384, 356,
+	// Medicham, Electrike, Manectric, Plusle, Minun, Volbeat, Illumise, Roselia
+	357, 337, 338, 353, 354, 386, 387, 363,
+	// Gulpin, Swalot, Carvanha, Sharpedo, Wailmer, Wailord, Numel, Camerupt
+	367, 368, 330, 331, 313, 314, 339, 340,
+	// Torkoal, Spoink, Grumpig, Spinda, Trapinch, Vibrava, Flygon, Cacnea
+	321, 351, 352, 308, 332, 333, 334, 344,
+	// Cacturne, Swablu, Altaria, Zangoose, Seviper, Lunatone, Solrock, Barboach
+	345, 358, 359, 380, 379, 348, 349, 323,
+	// Whiscash, Corphish, Crawdaunt, Baltoy, Claydol, Lileep, Cradily, Anorith
+	324, 326, 327, 318, 319, 388, 389, 390,
+	// Armaldo, Feebas, Milotic, Castform, Kecleon, Shuppet, Banette, Duskull
+	391, 328, 329, 385, 317, 377, 378, 361,
+	// Dusclops, Tropius, Chimecho, Absol, Wynaut, Snorunt, Glalie, Spheal,
+	362, 369, 411, 376, 360, 346, 347, 341,
+	// Sealeo, Walrein, Clamperl, Huntail, Gorebyss, Relicanth, Luvdisc, Bagon
+	342, 343, 373, 374, 375, 381, 325, 395,
+	// Shelgon, Salamence, Beldum, Metang, Metagross, Regirock, Regice, Registeel
+	396, 397, 398, 399, 400, 401, 402, 403,
+	// Latias, Latios, Kyogre, Groudon, Rayquaza, Jirachi, Deoxys
+	407, 408, 404, 405, 406, 409, 410
+};
+
 const char* get_species_name_by_index(unsigned index) {
 	if (index >= ARRAY_LENGTH(pokemon_species))
 		return pokemon_species[0];
 	return pokemon_species[index];
 }
 
-uint16_t get_pokedex_number(unsigned index) {
+uint16_t gen3_index_to_pokedex(unsigned index) {
 	if (index <= 251) // Gen1-2
 		return index;
 	else if (index <= 276) // Filler "?" species
 		return 0;
-	else if (index <= 300) // Early Gen3
-		return index - 25;
-	else if (index <= 412)
-		return idx301_to_dex[index - 301];
+	else if (index <= 412) // Gen3
+		return index2dex_table_gen3[index - 277];
 	else if (index <= 439)
 		return 201;
 	else
 		return 0;
 }
 
-const char* get_location_name(unsigned index) {
+uint16_t gen3_pokedex_to_index(unsigned species) {
+	if (species <= 251) // Gen1-2
+		return species;
+	else if (species <= 386) // Gen3
+		return dex2index_table_gen3[species - 276];
+	return 0;
+}
+
+const char* get_location_name(unsigned index, unsigned origin_game) {
 	if (index == 0xFE)
 		return "In-Game Trade";
 	if (index == 0xFF)
 		return "Fateful Encounter";
+	if (origin_game == 15)
+		return "Orre";
+	if (origin_game == 0 || origin_game > 5)
+		return "Met in a trade";
 	if (index >= ARRAY_LENGTH(location_names))
 		return 0;
 	return location_names[index];
