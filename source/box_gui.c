@@ -28,6 +28,7 @@
 #include "guiTileset.h"
 #include "gui_tilemaps.h"
 #include "pkmx_format.h"
+#include "pokemon_strings.h"
 #include "savedata_gen3.h"
 #include "sd_boxes.h"
 
@@ -195,6 +196,7 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 	u16 species;
 	char nickname[12];
 	uint8_t palette[32];
+	struct SimplePKM simple;
 
 	selectTopConsole();
 	consoleClear();
@@ -222,12 +224,16 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 	if (pkm.species == 0) {
 		selectBottomConsole();
 		iprintf("\x1b[1;22H%-10s\n", "");
+		iprintf("\x1b[3;22H%-10s\n", "");
+		iprintf("\x1b[14;22H%-10s\n", "");
+		iprintf("\x1b[16;22H%-10s\n", "");
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
 		return;
 	}
 
+	pkm3_to_simplepkm(&simple, &pkm);
 	print_pokemon_details(&pkm);
 
 	species = pkm_displayed_species(&pkm);
@@ -242,7 +248,13 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 	}
 
 	selectBottomConsole();
-	iprintf("\x1b[1;22H\x1b[30;0m%-10s\x1b[39;0m\n", nickname);
+	iprintf("\x1b[30;m");
+	iprintf("\x1b[1;22H%-10s", get_pokemon_name_by_dex(simple.dexNumber));
+	iprintf("\x1b[3;22H#%03d", simple.dexNumber);
+	iprintf("\x1b[14;22H%-10s", nickname);
+	iprintf("\x1b[16;22HLv %3d  %c", simple.level,
+		simple.gender == 0 ? 0xb : simple.gender == 1 ? 0xc : ' ');
+	iprintf("\x1b[39;0m\n");
 
 	readFrontImage(frontSpriteData, palette, species, pkm_is_shiny(&pkm));
 

@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "asset_manager.h"
+#include "pkmx_format.h"
 #include "pokemon_strings.h"
 #include "string_gen3.h"
 #include "util.h"
@@ -541,6 +542,90 @@ uint16_t pkm_displayed_species(const union pkm_t *pkm) {
 	return species;
 }
 
+void pkm3_to_simplepkm(struct SimplePKM *simple, const pkm3_t *pkm) {
+	const struct BaseStatEntryGen3 *baseStats;
+
+	memset(simple, 0, sizeof(struct SimplePKM));
+	if (pkm->species == 0)
+		return;
+	baseStats = getBaseStatEntry(pkm->species);
+	decode_gen3_string(simple->nickname, pkm->nickname, 10, pkm->language);
+	decode_gen3_string(simple->trainerName, pkm->trainerName, 7, pkm->language);
+	simple->dexNumber = gen3_index_to_pokedex(pkm->species);
+	simple->isShiny = pkm_is_shiny(pkm);
+	simple->isEgg = PKM3_IS_EGG(*pkm);
+	simple->isOTFemale = pkm->origins >> 15;
+	simple->metLevel = pkm->origins & 0x7F;
+	simple->marking = pkm->marking;
+	simple->trainerId = pkm->trainerId;
+	simple->heldItem = pkm->held_item;
+	simple->IVs = pkm->IVs;
+	simple->metLocation = get_location_name(pkm->met_location, pkm->origins >> 7 & 0xF);
+	if (pkm->language >= 0x201 && pkm->language <= 0x207 && pkm->language != 0x206)
+		simple->language = pkm->language & ~0x200;
+	simple->trainerId = pkm->trainerId;
+	if (baseStats->ability[1])
+		simple->ability = get_ability_name(baseStats->ability[pkm->personality & 1]);
+	else
+		simple->ability = get_ability_name(baseStats->ability[0]);
+	simple->types[0] = baseStats->type[0];
+	simple->types[1] = baseStats->type[1];
+	for (int i = 0; i < 4; i++) {
+		simple->moves[i] = pkm->moves[i];
+		simple->movePP[i] = pkm->move_pp[i];
+	}
+
+	// Calculate stats
+	if (baseStats->expGrowth <= 5) {
+		const uint32_t *growthTable;
+		uint8_t level;
+		uint8_t nature;
+		uint8_t natureMods[6] = {10, 10, 10, 10, 10, 10};
+		nature = pkm->personality % 25;
+		simple->nature = nature;
+		natureMods[nature / 5 + 1]++;
+		natureMods[nature % 5 + 1]--;
+		growthTable = experienceTables[baseStats->expGrowth];
+		for (level = 0; level < 100; level++) {
+			if (pkm->experience < growthTable[level])
+				break;
+		}
+		simple->level = level;
+		for (int statIdx = 0; statIdx < 6; statIdx++) {
+			uint8_t iv = pkm->IVs >> (5 * statIdx) & 0x1F;
+			uint32_t stat;
+			stat = 2 * baseStats->stats[statIdx] + iv + pkm->effort[statIdx] / 4;
+			stat = (stat * level / 100 + 5) * natureMods[statIdx] / 10;
+			simple->stats[statIdx] = (uint16_t) stat;
+			simple->EVs[statIdx] = pkm->effort[statIdx];
+		}
+		// HP stat uses a slightly different calculation
+		if (simple->dexNumber == 292) // Shedinja
+			simple->stats[0] = 1;
+		else
+			simple->stats[0] += 5 + level;
+	}
+
+	// Gender
+	if (baseStats->genderRatio == 0xFF)
+		simple->gender = 2;
+	else if (baseStats->genderRatio == 0xFE)
+		simple->gender = 1;
+	else
+		simple->gender = (pkm->personality & 0xFF) < baseStats->genderRatio;
+
+	// Pokeball
+	{
+		uint16_t ball;
+		ball = pkm->origins >> 11 & 0xF;
+		if (ball == 0 || ball > 12)
+			ball = 4; // Regular Pokeball
+		simple->pokeball = ball;
+	}
+
+	// TODO also populate simple->form and simple->isBadEgg
+}
+
 void print_trainer_info() {
 	char curString[16] = {0};
 	uint32_t gameid;
@@ -563,74 +648,72 @@ void print_trainer_info() {
 
 
 int print_pokemon_details(const union pkm_t *pkm) {
-	char nickname[12];
-	char trainer[12];
+	struct SimplePKM simple;
+	const char *species_name;
 
-	nickname[decode_gen3_string(nickname, pkm->nickname, 10, pkm->language)] = 0;
-	trainer[decode_gen3_string(trainer, pkm->trainerName, 7, pkm->language)] = 0;
-	uint16_t pokedex_no = gen3_index_to_pokedex(pkm->species);
-	if (pkm->species == 0) {
+	pkm3_to_simplepkm(&simple, pkm);
+
+	if (simple.dexNumber == 0) {
 		iprintf("  0              (Empty Space)\n");
 		return 0;
 	}
-	const char *species_name;
-	species_name = get_species_name_by_index(pkm->species);
-	int is_shiny = pkm_is_shiny(pkm);
-	if (PKM3_IS_EGG(*pkm)) {
-		iprintf("%3d %cEGG for a %s\n", pokedex_no, is_shiny ? '*' : ' ', species_name);
+	species_name = get_pokemon_name_by_dex(simple.dexNumber);
+	if (simple.isEgg) {
+		iprintf("%3d %cEGG for a %s\n", simple.dexNumber,
+			simple.isShiny ? '*' : ' ', species_name);
 	}
 	else {
-		unsigned lang = pkm->language;
+		unsigned lang = simple.language;
 		char *lang_str =
-			(lang == 0x201) ? "JPN" :
-			(lang == 0x202) ? "ENG" :
-			(lang == 0x203) ? "FRE" :
-			(lang == 0x204) ? "ITA" :
-			(lang == 0x205) ? "GER" :
-			(lang == 0x206) ? "KOR" :
-			(lang == 0x207) ? "SPA" : "???";
+			(lang == 1) ? "JPN" :
+			(lang == 2) ? "ENG" :
+			(lang == 3) ? "FRE" :
+			(lang == 4) ? "ITA" :
+			(lang == 5) ? "GER" :
+			(lang == 7) ? "SPA" : "???";
 		iprintf("%3d %c%-10s  %-10s  %3s",
-			pokedex_no, is_shiny ? '*' : ' ', nickname, species_name, lang_str);
+			simple.dexNumber, simple.isShiny ? '*' : ' ',
+			simple.nickname, species_name, lang_str);
 	}
 	iprintf("OT  %-7s (%s) - %05ld [%05ld]\n",
-		trainer, (pkm->origins & 0x8000) ? "F" : "M",
-		pkm->trainerId & 0xFFFF, pkm->trainerId >> 16);
-	const char *location_name = get_location_name(pkm->met_location, pkm->origins >> 7 & 0xF);
-	if (location_name)
-		iprintf("Met: %-27s", location_name);
-	else
-		iprintf("Met: Invalid Location (%d\n", pkm->met_location);
-	// TODO add level, experience, PP, friendship, ability, ribbons
-	// TODO add origins info (ball, game, level)
-	const char *item_name = get_item_name(pkm->held_item);
+		simple.trainerName, simple.isOTFemale ? "F" : "M",
+		simple.trainerId & 0xFFFF, simple.trainerId >> 16);
+	iprintf("Met:     %-23.23s", simple.metLocation);
+	const char *item_name = get_item_name(simple.heldItem);
 	if (item_name)
-		iprintf("Item: %-26s", item_name);
+		iprintf("Item:    %-23s", item_name);
 	else
-		iprintf("Item: Invalid (%d)\n", pkm->held_item);
-	iprintf("\nMoves:\n");
+		iprintf("Item:    Invalid (%d)\n", simple.heldItem);
+	iprintf("Nature:  %s\n", get_nature_name(simple.nature));
+	iprintf("Ability: %s\n", simple.ability);
+	if (simple.types[0] == simple.types[1])
+		iprintf("Type:    %s\n", get_type_name(simple.types[0]));
+	else
+		iprintf("Type:    %-8s %s\n",
+			get_type_name(simple.types[0]), get_type_name(simple.types[1]));
+	iprintf("Moves:\n");
 	for (int i = 0; i < 4; i++) {
 		// Because each move is printed to exactly 16 characters, these 4 moves
 		// fill 2 lines perfectly without the need for any newlines
-		const char *move_name = get_move_name(pkm->moves[i]);
+		const char *move_name = get_move_name(simple.moves[i]);
 		if (move_name)
 			iprintf("  %-14s", move_name);
 		else
-			iprintf("  Invalid: %-3d  ", pkm->moves[i]);
+			iprintf("  Invalid: %-3d  ", simple.moves[i]);
 	}
-	iprintf("\nStat  HP Atk Def Spd SpA SpD\n  EV");
+	iprintf("\n      HP Atk Def Spd SpA SpD\nStat");
 	for (int i = 0; i < 6; i++)
-		iprintf(" %3d", (int) pkm->effort[i]);
+		iprintf(" %3d", (int) simple.stats[i]);
+	iprintf("\n  EV");
+	for (int i = 0; i < 6; i++)
+		iprintf(" %3d", (int) simple.EVs[i]);
 	iprintf("\n  IV");
 	for (int i = 0; i < 6; i++)
-		iprintf("  %2ld", (pkm->IVs >> (5 * i)) & 0x1f);
+		iprintf("  %2ld", (simple.IVs >> (5 * i)) & 0x1f);
 	iprintf("\n");
-	iprintf("\nContest stats:\n");
-	iprintf(
-		"Cool  %3d  Beaut %3d  Cute %3d\n"
-		"Smart %3d  Tough %3d  Feel %3d\n",
+	iprintf("\nContest: %3d %3d %3d %3d %3d %3d",
 		(int) pkm->contest[0],  (int) pkm->contest[1], (int) pkm->contest[2],
 		(int) pkm->contest[3], (int) pkm->contest[4],  (int) pkm->contest[5]);
-	iprintf("\nTechnical Data:\n");
 	iprintf(" PID=%08lx  TID=%08lx\n", pkm->personality, pkm->trainerId);
 	for (int i = 0; i < 4; i++) {
 		if (i != 0) iprintf("\n");

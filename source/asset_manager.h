@@ -31,6 +31,24 @@ extern int activeGameLanguage;
 #define IS_FIRERED_LEAFGREEN (activeGameId == 2 || activeGameId == 3)
 #define IS_EMERALD (activeGameId == 4)
 
+struct BaseStatEntryGen3 {
+	uint8_t stats[6];
+	uint8_t type[2];
+	uint8_t catchRate;
+	uint8_t expYield;
+	uint16_t evYield;
+	uint16_t heldItem[2];
+	uint8_t genderRatio;
+	uint8_t eggCycles;
+	uint8_t baseFriendship;
+	uint8_t expGrowth;
+	uint8_t eggGroup[2];
+	uint8_t ability[2];
+	uint8_t safariFleeRate;
+	uint8_t bodyColor;
+	uint8_t padding[2];
+};
+
 void assets_init_placeholder();
 _Bool assets_init_cart();
 _Bool assets_init_romfile(const char *file);
@@ -42,3 +60,4 @@ const uint16_t* getIconImage(uint16_t species);
 const uint16_t* getIconPaletteColors(int index);
 void readFrontImage(uint8_t *tiles_out, uint8_t *palette_out, uint16_t species, int shiny);
 int loadWallpaper(int index);
+const struct BaseStatEntryGen3* getBaseStatEntry(uint16_t species);

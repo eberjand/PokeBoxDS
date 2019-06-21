@@ -15,6 +15,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+#pragma once
+
+#include <stdint.h>
 
 /* PKMX data contains (hex offsets):
  * 00 current generation
@@ -53,11 +56,38 @@
  * Data lost from forward conversion for Gen4 to Gen5:
  * AD    Shiny Leaves (HGSS)
  */
-#pragma once
 
 #define PKMX_SIZE 176
 #define BOX_SIZE_BYTES_X (176*30)
-#include <stdint.h>
+
+struct SimplePKM {
+	char nickname[12];
+	char trainerName[8];
+	uint16_t stats[6];
+	uint32_t IVs;
+	uint8_t EVs[6];
+	uint16_t dexNumber;
+	uint16_t pokeball;
+	uint8_t marking;
+	uint8_t form;
+	uint8_t gender;
+	uint8_t nature;
+	uint8_t level;
+	uint8_t metLevel;
+	uint8_t language;
+	uint8_t isEgg : 1;
+	uint8_t isBadEgg : 1;
+	uint8_t isOTFemale : 1;
+	uint8_t isShiny : 1;
+	uint8_t unusedFlags : 4;
+	uint16_t heldItem;
+	const char *metLocation;
+	const char *ability;
+	uint32_t trainerId;
+	uint8_t types[2];
+	uint16_t moves[4];
+	uint8_t movePP[4];
+};
 
 void pkm_to_pkmx(uint8_t *pkmx, const uint8_t *pkm, int generation);
 int pkmx_convert_generation(uint8_t *pkmx, int generation);

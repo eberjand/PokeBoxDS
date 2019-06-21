@@ -18,9 +18,15 @@
 #pragma once
 #include <stdint.h>
 
-const char* get_species_name_by_index(unsigned index);
+extern const uint32_t experienceTables[6][100];
+
+const char* get_pokemon_name_by_dex(unsigned index);
 uint16_t gen3_index_to_pokedex(unsigned index);
 uint16_t gen3_pokedex_to_index(unsigned species);
 const char* get_location_name(unsigned index, unsigned origin_game);
 const char* get_item_name(unsigned index);
 const char* get_move_name(unsigned index);
+const char* get_type_name(unsigned index);
+const char* get_egg_group_name(unsigned index);
+const char* get_nature_name(unsigned index);
+const char* get_ability_name(unsigned index);
