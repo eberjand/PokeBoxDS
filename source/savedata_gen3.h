@@ -71,7 +71,6 @@ extern uint32_t savedata_sections[SAVEDATA_NUM_SECTIONS];
 extern int savedata_active_slot;
 
 void pkm3_to_simplepkm(struct SimplePKM *simple, const pkm3_t *pkm);
-int decode_gen3_string(char *out, const uint8_t *str, int len, uint16_t lang);
 int pkm_is_shiny(const union pkm_t *pkm);
 uint16_t pkm_displayed_species(const union pkm_t *pkm);
 void print_trainer_info(void);

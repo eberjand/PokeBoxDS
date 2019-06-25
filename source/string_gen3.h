@@ -19,4 +19,5 @@
 #include <stdint.h>
 #include "languages.h"
 
-int decode_gen3_string(char *out, const uint8_t *str, int len, uint16_t lang);
+int decode_gen3_string(char *out, const uint8_t *str, int destLen, int len, uint16_t lang);
+int decode_gen3_string16(uint16_t *out, const uint8_t *str, int len, uint16_t lang);

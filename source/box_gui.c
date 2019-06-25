@@ -30,7 +30,10 @@
 #include "pkmx_format.h"
 #include "pokemon_strings.h"
 #include "savedata_gen3.h"
+#include "string_gen3.h"
 #include "sd_boxes.h"
+#include "text_draw.h"
+#include "utf8.h"
 
 /* VRAM layout:
  * 5000000-50001FF (512B) BG Palettes A (Top Screen)
@@ -126,7 +129,7 @@ struct boxgui_groupView {
 	uint8_t generation;
 	uint16_t pkmSize;
 	uint16_t boxSizeBytes;
-	char **boxNames;
+	uint16_t **boxNames;
 	uint8_t *boxWallpapers;
 	uint8_t *boxData;
 	uint16_t *boxIcons;
@@ -194,12 +197,19 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 	pkm3_t pkm;
 	uint16_t checksum;
 	u16 species;
-	char nickname[12];
+	const char *nickname;
 	uint8_t palette[32];
 	struct SimplePKM simple;
+	const textLabel_t *textLabels[5];
 
 	selectTopConsole();
 	consoleClear();
+
+	textLabels[0] = prepareTextLabel(1, 22,  0, 10);
+	textLabels[1] = prepareTextLabel(1, 22,  2, 10);
+	textLabels[2] = prepareTextLabel(1, 22, 13, 10);
+	textLabels[3] = prepareTextLabel(1, 22, 15,  6);
+	textLabels[4] = prepareTextLabel(1, 28, 15,  2);
 
 	if (generation == 0) {
 		uint8_t curGen = pkm_in[0];
@@ -222,14 +232,10 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 	}
 
 	if (pkm.species == 0) {
-		selectBottomConsole();
-		iprintf("\x1b[1;22H%-10s\n", "");
-		iprintf("\x1b[3;22H%-10s\n", "");
-		iprintf("\x1b[14;22H%-10s\n", "");
-		iprintf("\x1b[16;22H%-10s\n", "");
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
+		popLabels(1, 5);
 		return;
 	}
 
@@ -238,23 +244,34 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 
 	species = pkm_displayed_species(&pkm);
 	if (checksum != pkm.checksum) {
-		strcpy(nickname, "Bad EGG");
+		nickname = "Bad EGG";
 		species = 412;
 	} else if (species == 412) {
-		strcpy(nickname, "EGG");
+		nickname = "EGG";
 	} else {
-		decode_gen3_string(nickname, pkm.nickname, 10, pkm.language);
-		nickname[10] = 0;
+		nickname = NULL;
 	}
 
-	selectBottomConsole();
-	iprintf("\x1b[30;m");
-	iprintf("\x1b[1;22H%-10s", get_pokemon_name_by_dex(simple.dexNumber));
-	iprintf("\x1b[3;22H#%03d", simple.dexNumber);
-	iprintf("\x1b[14;22H%-10s", nickname);
-	iprintf("\x1b[16;22HLv %3d  %c", simple.level,
-		simple.gender == 0 ? 0xb : simple.gender == 1 ? 0xc : ' ');
-	iprintf("\x1b[39;0m\n");
+	uint16_t genderStr[2];
+	uint8_t genderColor = FONT_BLACK;
+	genderStr[0] = 0;
+	genderStr[1] = 0;
+	if (simple.gender == 0) {
+		genderStr[0] = 0x2642;
+		genderColor = FONT_BLUE;
+	} else if (simple.gender == 1) {
+		genderStr[0] = 0x2640;
+		genderColor = FONT_PINK;
+	}
+	drawText(   textLabels[0], FONT_BLACK, FONT_WHITE, get_pokemon_name_by_dex(simple.dexNumber));
+	drawTextFmt(textLabels[1], FONT_BLACK, FONT_WHITE, "#%03d", simple.dexNumber);
+	if (nickname)
+		drawText(textLabels[2], FONT_BLACK, FONT_WHITE, nickname);
+	else
+		drawText16(textLabels[2], FONT_BLACK, FONT_WHITE, simple.nickname);
+	drawTextFmt(textLabels[3], FONT_BLACK, FONT_WHITE, "Lv %3d", simple.level);
+	drawText16(textLabels[4], genderColor, FONT_WHITE, genderStr);
+	popLabels(1, 5);
 
 	readFrontImage(frontSpriteData, palette, species, pkm_is_shiny(&pkm));
 
@@ -420,17 +437,21 @@ static void update_cursor(struct boxgui_state *guistate) {
 }
 
 static int display_box(const struct boxgui_state *guistate) {
-	char *name;
+	uint16_t *name;
 	int rc;
 	const struct boxgui_groupView *group;
-	char namebuf[16];
+	char namebuf[20];
+	const textLabel_t *nameLabel;
+
+	resetTextLabels(1);
 
 	group = &guistate->botScreen;
 	if (group->boxNames) {
 		name = group->boxNames[group->activeBox];
+		utf8_encode(namebuf, name, sizeof(namebuf));
 	} else {
 		sprintf(namebuf, "BOX %d", group->activeBox + 1);
-		name = namebuf;
+		name = NULL;
 	}
 	rc = 0;
 	if (group->boxWallpapers) {
@@ -441,12 +462,11 @@ static int display_box(const struct boxgui_state *guistate) {
 
 	selectBottomConsole();
 	if (group->generation == 3) {
-		iprintf("\x1b[6;5H\x1b[30;0m%-8s\x1b[39;0m", "");
-		iprintf("\x1b[7;5H\x1b[30;0m%-8s\x1b[39;0m", name);
+		nameLabel = prepareTextLabel(1, 5, 6, 12);
 	} else {
-		iprintf("\x1b[6;5H\x1b[30;0m%-8s\x1b[39;0m", name);
-		iprintf("\x1b[7;5H\x1b[30;0m%-8s\x1b[39;0m", "");
+		nameLabel = prepareTextLabel(1, 5, 5, 12);
 	}
+	drawText(nameLabel, FONT_BLACK, FONT_WHITE, namebuf);
 
 	bgInit(BG_LAYER_BUTTONS, BgType_Text4bpp, BgSize_T_256x256,
 		BG_MAPBASE_BUTTONS, BG_TILEBASE_BUTTONS);
@@ -825,9 +845,8 @@ static void store_holding(struct boxgui_state *guistate) {
 void open_boxes_gui() {
 	struct boxgui_state *guistate;
 	const int NUM_BOXES = 14;
-	char box_name_buffer[9 * NUM_BOXES];
-	char *box_names[NUM_BOXES];
-	char *box_name;
+	uint16_t box_name_buffer[9 * NUM_BOXES];
+	uint16_t *box_names[NUM_BOXES];
 
 	sysSetBusOwners(true, true);
 	swiDelay(10);
@@ -843,13 +862,15 @@ void open_boxes_gui() {
 	clearConsoles();
 
 	// Load box names
-	memcpy(box_name_buffer, GET_SAVEDATA_SECTION(13) + 0x744, sizeof(box_name_buffer));
-	box_name = box_name_buffer;
-
-	// Box names can be up to 8 characters and always include a 0xFF terminator for 9 bytes
-	for (int i = 0; i < NUM_BOXES; i++, box_name += 9) {
-		decode_gen3_string(box_name, (uint8_t*) box_name, 9, 0);
-		box_names[i] = box_name;
+	{
+		const uint8_t *box_name;
+		box_name = GET_SAVEDATA_SECTION(13) + 0x744;
+		// Box names can be up to 8 characters and always include a 0xFF terminator for 9 bytes
+		for (int i = 0; i < NUM_BOXES; i++, box_name += 9) {
+			uint16_t *out;
+			out = box_names[i] = box_name_buffer + 9 * i;
+			decode_gen3_string16(out, box_name, 9, activeGameLanguage);
+		}
 	}
 
 	// Initial GUI state

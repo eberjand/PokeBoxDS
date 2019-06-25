@@ -61,8 +61,8 @@
 #define BOX_SIZE_BYTES_X (176*30)
 
 struct SimplePKM {
-	char nickname[12];
-	char trainerName[8];
+	uint16_t nickname[12];
+	uint16_t trainerName[8];
 	uint16_t stats[6];
 	uint32_t IVs;
 	uint8_t EVs[6];

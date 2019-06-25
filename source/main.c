@@ -22,10 +22,10 @@
 #include <unistd.h>
 
 #include "ConsoleMenu.h"
-#include "console_helper.h"
 #include "asset_manager.h"
+#include "box_gui.h"
+#include "console_helper.h"
 #include "file_picker.h"
-#include "game_menu.h"
 #include "savedata_gen3.h"
 #include "util.h"
 
@@ -96,7 +96,7 @@ void openGameFromSD() {
 			continue;
 		}
 
-		game_menu_open(savPath);
+		open_boxes_gui();
 	}
 }
 
@@ -120,7 +120,7 @@ void openGameFromCart() {
 		return;
 	}
 
-	game_menu_open(NULL);
+	open_boxes_gui();
 }
 
 int main(int argc, char **argv) {

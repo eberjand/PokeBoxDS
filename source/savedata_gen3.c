@@ -25,6 +25,7 @@
 #include "pkmx_format.h"
 #include "pokemon_strings.h"
 #include "string_gen3.h"
+#include "utf8.h"
 #include "util.h"
 
 /* Resources for data structure:
@@ -549,8 +550,8 @@ void pkm3_to_simplepkm(struct SimplePKM *simple, const pkm3_t *pkm) {
 	if (pkm->species == 0)
 		return;
 	baseStats = getBaseStatEntry(pkm->species);
-	decode_gen3_string(simple->nickname, pkm->nickname, 10, pkm->language);
-	decode_gen3_string(simple->trainerName, pkm->trainerName, 7, pkm->language);
+	decode_gen3_string16(simple->nickname, pkm->nickname, 10, pkm->language);
+	decode_gen3_string16(simple->trainerName, pkm->trainerName, 7, pkm->language);
 	simple->dexNumber = gen3_index_to_pokedex(pkm->species);
 	simple->isShiny = pkm_is_shiny(pkm);
 	simple->isEgg = PKM3_IS_EGG(*pkm);
@@ -636,7 +637,7 @@ void print_trainer_info() {
 	iprintf("Game: %s\n",
 		(gameid == 0) ? "Ruby/Sapphire" :
 		(gameid == 1) ? "FireRed/LeafGreen" : "Ruby/Sapphire/Emerald");
-	decode_gen3_string(curString, trainerInfo, 7, 0);
+	decode_gen3_string(curString, trainerInfo, 16, 7, 0);
 	iprintf("Name: %s\n", curString);
 	iprintf("Gender: %s\n", trainerInfo[0x8] ? "F" : "M");
 	iprintf("Trainer ID: %5d\n", (int) GET16(trainerInfo, 0xA));
@@ -649,35 +650,17 @@ void print_trainer_info() {
 
 int print_pokemon_details(const union pkm_t *pkm) {
 	struct SimplePKM simple;
-	const char *species_name;
 
 	pkm3_to_simplepkm(&simple, pkm);
 
 	if (simple.dexNumber == 0) {
-		iprintf("  0              (Empty Space)\n");
 		return 0;
 	}
-	species_name = get_pokemon_name_by_dex(simple.dexNumber);
-	if (simple.isEgg) {
-		iprintf("%3d %cEGG for a %s\n", simple.dexNumber,
-			simple.isShiny ? '*' : ' ', species_name);
-	}
-	else {
-		unsigned lang = simple.language;
-		char *lang_str =
-			(lang == 1) ? "JPN" :
-			(lang == 2) ? "ENG" :
-			(lang == 3) ? "FRE" :
-			(lang == 4) ? "ITA" :
-			(lang == 5) ? "GER" :
-			(lang == 7) ? "SPA" : "???";
-		iprintf("%3d %c%-10s  %-10s  %3s",
-			simple.dexNumber, simple.isShiny ? '*' : ' ',
-			simple.nickname, species_name, lang_str);
-	}
+	/* TODO replace this with text labels
 	iprintf("OT  %-7s (%s) - %05ld [%05ld]\n",
 		simple.trainerName, simple.isOTFemale ? "F" : "M",
-		simple.trainerId & 0xFFFF, simple.trainerId >> 16);
+		simple.trainerId & 0xFFFF, simple.trainerId >> 16);*/
+	iprintf("OT:      %05ld-%05ld\n", simple.trainerId & 0xFFFF, simple.trainerId >> 16);
 	iprintf("Met:     %-23.23s", simple.metLocation);
 	const char *item_name = get_item_name(simple.heldItem);
 	if (item_name)

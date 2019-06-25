@@ -17,4 +17,8 @@
  */
 #pragma once
 
-void open_boxes(void);
+#include <stdint.h>
+
+uint16_t utf8_decode_next(const char *str, const char **tail);
+int utf8_encode(char *str, const uint16_t *codepoints, int maxBytes);
+int utf8_encode_one(char *str, uint16_t codepoint, int maxBytes);
