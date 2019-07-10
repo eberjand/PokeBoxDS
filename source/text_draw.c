@@ -27,28 +27,16 @@
 #include "font2000_half_bin.h"
 #include "font2190_half_bin.h"
 #include "font2460_full_bin.h"
+#include "font25A0_half_bin.h"
 #include "font2600_half_bin.h"
 #include "font2700_full_bin.h"
+#include "font2B00_full_bin.h"
 #include "font3000_full_bin.h"
+#include "font5186_full_bin.h"
 #include "fontFF00_full_bin.h"
 
 #include "utf8.h"
 #include "util.h"
-
-struct textLabel {
-	uint8_t screen;
-	uint8_t x, y;
-	uint8_t length;
-	uint16_t tileIdx;
-};
-typedef struct textLabel textLabel_t;
-
-static struct textLabel textLabelsTop[128];
-static struct textLabel textLabelsBot[128];
-static uint8_t textLabelTopCount = 0;
-static uint8_t textLabelBotCount = 0;
-static uint16_t tileIdxTop = 256;
-static uint16_t tileIdxBot = 256;
 
 struct glyphBlockHeader {
 	uint16_t cpStart;
@@ -128,62 +116,30 @@ static uint16_t* drawTextPrepare(const textLabel_t *label) {
 	return tileRam;
 }
 
+void clearText(const textLabel_t *label) {
+	uint16_t *mapRam;
+	if (label->screen) {
+		mapRam = BG_MAP_RAM_SUB(0);
+	} else {
+		mapRam = BG_MAP_RAM(0);
+	}
+	for (int i = 0; i < label->length; i++) {
+		mapRam[32 * label->y       + label->x + i] = 0;
+		mapRam[32 * (label->y + 1) + label->x + i] = 0;
+	}
+}
+
 void resetTextLabels(uint8_t screen) {
 	uint16_t *mapRam;
 	if (screen) {
-		textLabelBotCount = 0;
-		tileIdxBot = 256;
 		mapRam = BG_MAP_RAM_SUB(0);
 		memcpy(BG_PALETTE_SUB, colorFontPal, sizeof(colorFontPal));
 	}
 	else {
-		textLabelTopCount = 0;
-		tileIdxTop = 256;
 		mapRam = BG_MAP_RAM(0);
 		memcpy(BG_PALETTE, colorFontPal, sizeof(colorFontPal));
 	}
 	memset(mapRam, 0, 32 * 32 * 2);
-}
-
-const textLabel_t* prepareTextLabel(uint8_t screen, uint8_t x, uint8_t y, uint8_t len) {
-	textLabel_t *out;
-	if (screen) {
-		out = &textLabelsBot[textLabelBotCount++];
-		out->tileIdx = tileIdxBot;
-		tileIdxBot += len * 2;
-	}
-	else {
-		out = &textLabelsTop[textLabelTopCount++];
-		out->tileIdx = tileIdxTop;
-		tileIdxTop += len * 2;
-	}
-	out->screen = screen;
-	out->x = x;
-	out->y = y;
-	out->length = len;
-	drawTextPrepare(out);
-	return out;
-}
-
-void popLabels(uint8_t screen, int n) {
-	uint8_t *countPtr;
-	uint16_t *tileIdxPtr;
-	struct textLabel *labelsPtr;
-	if (screen) {
-		countPtr = &textLabelBotCount;
-		labelsPtr = textLabelsBot;
-		tileIdxPtr = &tileIdxBot;
-	} else {
-		countPtr = &textLabelTopCount;
-		labelsPtr = textLabelsTop;
-		tileIdxPtr = &tileIdxTop;
-	}
-	for (int i = 0; i < n; i++) {
-		if (*countPtr <= 0)
-			break;
-		(*countPtr)--;
-		*tileIdxPtr -= labelsPtr[*countPtr].length * 2;
-	}
 }
 
 static void drawTextTile(uint32_t *tileData, const uint8_t *glyphBits, int isWide,

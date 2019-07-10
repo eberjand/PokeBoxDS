@@ -26,12 +26,17 @@
 #define FONT_BLUE 10
 #define FONT_YELLOW 11
 
+struct textLabel {
+	uint8_t screen;
+	uint8_t x, y;
+	uint8_t length;
+	uint16_t tileIdx;
+};
 typedef struct textLabel textLabel_t;
 
 void resetTextLabels(uint8_t screen);
-const textLabel_t* prepareTextLabel(uint8_t screen, uint8_t x, uint8_t y, uint8_t len);
-void popLabels(uint8_t screen, int n);
 
+void clearText(const textLabel_t *label);
 int drawText(const textLabel_t *label, uint8_t fg, uint8_t shadow, const char *text);
 int drawTextFmt(const textLabel_t *label, uint8_t fg, uint8_t shadow, const char *text, ...)
 	__attribute__ ((format (printf, 4, 5)));

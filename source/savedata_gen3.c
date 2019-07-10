@@ -118,11 +118,11 @@ static int verify_savedata_slot(const uint8_t *savedata, uint32_t *sections_out,
 			return 0;
 		}
 		if (last_nonzero * 4 >= section_sizes[footer.section_id]) {
-			iprintf("%04lX Section too large\n", section_offset);
+			iprintf("%04lX Section too large: %d\n", section_offset, footer.section_id);
 			return 0;
 		}
 		if (footer.checksum != checksum) {
-			iprintf("%04lX Checksum mismatch\n", section_offset);
+			iprintf("%04lX Checksum mismatch: %d\n", section_offset, footer.section_id);
 			return 0;
 		}
 		if (sectionIdx != 0 && footer.saveidx != saveidx) {

@@ -122,6 +122,17 @@ static uint8_t frontSpriteData[8192];
 #define GUI_FLAG_HOLDING 0x02
 #define GUI_FLAG_HOLDING_MULTIPLE 0x04
 
+static const textLabel_t botLabelGroup = {1, 1, 1, 16, 0x100};
+static const textLabel_t botLabelBox3  = {1, 5, 6, 12, 0x120};
+static const textLabel_t botLabelBox4  = {1, 5, 5, 12, 0x120};
+static const textLabel_t botLabelsInfo[] = {
+	{1, 22,  0, 10, 0x140},
+	{1, 22,  2, 10, 0x160},
+	{1, 22, 13, 10, 0x180},
+	{1, 22, 15,  6, 0x1A0},
+	{1, 28, 15,  2, 0x1C0}
+};
+
 struct boxgui_groupView {
 	uint8_t groupIdx;
 	int8_t activeBox;
@@ -200,16 +211,10 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 	const char *nickname;
 	uint8_t palette[32];
 	struct SimplePKM simple;
-	const textLabel_t *textLabels[5];
+	const textLabel_t *textLabels = botLabelsInfo;
 
 	selectTopConsole();
 	consoleClear();
-
-	textLabels[0] = prepareTextLabel(1, 22,  0, 10);
-	textLabels[1] = prepareTextLabel(1, 22,  2, 10);
-	textLabels[2] = prepareTextLabel(1, 22, 13, 10);
-	textLabels[3] = prepareTextLabel(1, 22, 15,  6);
-	textLabels[4] = prepareTextLabel(1, 28, 15,  2);
 
 	if (generation == 0) {
 		uint8_t curGen = pkm_in[0];
@@ -235,7 +240,8 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
-		popLabels(1, 5);
+		for (int i = 0; i < 5; i++)
+			clearText(&textLabels[i]);
 		return;
 	}
 
@@ -263,15 +269,14 @@ static void status_display_update(const uint8_t *pkm_in, int generation) {
 		genderStr[0] = 0x2640;
 		genderColor = FONT_PINK;
 	}
-	drawText(   textLabels[0], FONT_BLACK, FONT_WHITE, get_pokemon_name_by_dex(simple.dexNumber));
-	drawTextFmt(textLabels[1], FONT_BLACK, FONT_WHITE, "#%03d", simple.dexNumber);
+	drawText(   &textLabels[0], FONT_BLACK, FONT_WHITE, get_pokemon_name_by_dex(simple.dexNumber));
+	drawTextFmt(&textLabels[1], FONT_BLACK, FONT_WHITE, "#%03d", simple.dexNumber);
 	if (nickname)
-		drawText(textLabels[2], FONT_BLACK, FONT_WHITE, nickname);
+		drawText(&textLabels[2], FONT_BLACK, FONT_WHITE, nickname);
 	else
-		drawText16(textLabels[2], FONT_BLACK, FONT_WHITE, simple.nickname);
-	drawTextFmt(textLabels[3], FONT_BLACK, FONT_WHITE, "Lv %3d", simple.level);
-	drawText16(textLabels[4], genderColor, FONT_WHITE, genderStr);
-	popLabels(1, 5);
+		drawText16(&textLabels[2], FONT_BLACK, FONT_WHITE, simple.nickname);
+	drawTextFmt(&textLabels[3], FONT_BLACK, FONT_WHITE, "Lv %3d", simple.level);
+	drawText16(&textLabels[4], genderColor, FONT_WHITE, genderStr);
 
 	readFrontImage(frontSpriteData, palette, species, pkm_is_shiny(&pkm));
 
@@ -443,8 +448,6 @@ static int display_box(const struct boxgui_state *guistate) {
 	char namebuf[20];
 	const textLabel_t *nameLabel;
 
-	resetTextLabels(1);
-
 	group = &guistate->botScreen;
 	if (group->boxNames) {
 		name = group->boxNames[group->activeBox];
@@ -462,9 +465,11 @@ static int display_box(const struct boxgui_state *guistate) {
 
 	selectBottomConsole();
 	if (group->generation == 3) {
-		nameLabel = prepareTextLabel(1, 5, 6, 12);
+		nameLabel = &botLabelBox3;
+		clearText(&botLabelBox4);
 	} else {
-		nameLabel = prepareTextLabel(1, 5, 5, 12);
+		nameLabel = &botLabelBox4;
+		clearText(&botLabelBox3);
 	}
 	drawText(nameLabel, FONT_BLACK, FONT_WHITE, namebuf);
 
@@ -908,6 +913,7 @@ void open_boxes_gui() {
 
 	// Initial display
 	load_cursor();
+	resetTextLabels(1);
 	decode_boxes(&guistate->botScreen);
 	decode_boxes(&guistate->topScreen);
 	display_box(guistate);
