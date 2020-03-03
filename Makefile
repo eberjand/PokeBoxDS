@@ -30,6 +30,7 @@ SOURCES  := source
 INCLUDES := include
 DATA     := data
 GRAPHICS := gfx
+TILEMAPS := tilemaps
 AUDIO    :=
 ICON     := PokeBoxDS.png
 
@@ -75,11 +76,14 @@ LIBDIRS := $(LIBNDS) $(PORTLIBS)
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 #---------------------------------------------------------------------------------
 
+export TMXBUILD := $(CURDIR)/tools/tmxbuild
+
 export OUTPUT := $(CURDIR)/$(TARGET)
 
 export VPATH := $(CURDIR)/$(subst /,,$(dir $(ICON)))\
                 $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))\
                 $(foreach dir,$(DATA),$(CURDIR)/$(dir))\
+                $(foreach dir,$(TILEMAPS),$(CURDIR)/$(dir))\
                 $(foreach dir,$(GRAPHICS),$(CURDIR)/$(dir))
 
 export DEPSDIR := $(CURDIR)/$(BUILD)
@@ -89,6 +93,7 @@ CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 PNGFILES := $(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.png)))
 BINFILES := $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
+TMXFILES := $(foreach dir,$(TILEMAPS),$(notdir $(wildcard $(dir)/*.tmx)))
 
 # prepare NitroFS directory
 ifneq ($(strip $(NITRO)),)
@@ -124,7 +129,7 @@ else
 endif
 #---------------------------------------------------------------------------------
 
-export OFILES_BIN   :=	$(addsuffix .o,$(BINFILES))
+export OFILES_BIN   :=	$(addsuffix .o,$(BINFILES)) $(addsuffix .o,$(TMXFILES:.tmx=.map))
 
 export OFILES_SOURCES := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 
@@ -133,6 +138,7 @@ export OFILES := $(PNGFILES:.png=.o) $(OFILES_BIN) $(OFILES_SOURCES)
 export HFILES := $(PNGFILES:.png=.h) $(addsuffix .h,$(subst .,_,$(BINFILES)))
 
 export INCLUDE  := $(foreach dir,$(INCLUDES),-iquote $(CURDIR)/$(dir))\
+                   $(foreach dir,$(SOURCES),-iquote $(CURDIR)/$(dir))\
                    $(foreach dir,$(LIBDIRS),-I$(dir)/include)\
                    -I$(CURDIR)/$(BUILD)
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
@@ -194,6 +200,15 @@ $(SOUNDBANK) : $(MODFILES)
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
+
+%.map: %.tmx
+	$(TMXBUILD) -o $@ $<
+
+%.map.o %_map.h : %.map
+	@echo $(notdir $<)
+	@VARNAME=$$(echo $(<F) | sed -e 's/[^A-Za-z0-9_]/_/g'); \
+	$(OBJCOPY) -I binary -O elf32-littlearm -B armv3m --redefine-sym "_binary_$${VARNAME}_start=$${VARNAME}" $< $@; \
+	echo "#include \"tilemapdefs.h\"\\nextern const tilemap_t $${VARNAME};" > $$(echo $(<F) | tr . _ ).h
 
 #---------------------------------------------------------------------------------
 # This rule creates assembly source files using grit

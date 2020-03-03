@@ -543,37 +543,62 @@ uint16_t pkm_displayed_species(const union pkm_t *pkm) {
 	return species;
 }
 
-void pkm3_to_simplepkm(struct SimplePKM *simple, const pkm3_t *pkm) {
+void pkm3_to_simplepkm(struct SimplePKM *simple, const uint8_t *src) {
 	const struct BaseStatEntryGen3 *baseStats;
+	pkm3_t pkm;
+	uint16_t checksum;
+
+	checksum = decode_pkm_encrypted_data(&pkm, src);
 
 	memset(simple, 0, sizeof(struct SimplePKM));
-	if (pkm->species == 0)
+	if (pkm.species == 0)
 		return;
-	baseStats = getBaseStatEntry(pkm->species);
-	decode_gen3_string16(simple->nickname, pkm->nickname, 10, pkm->language);
-	decode_gen3_string16(simple->trainerName, pkm->trainerName, 7, pkm->language);
-	simple->dexNumber = gen3_index_to_pokedex(pkm->species);
-	simple->isShiny = pkm_is_shiny(pkm);
-	simple->isEgg = PKM3_IS_EGG(*pkm);
-	simple->isOTFemale = pkm->origins >> 15;
-	simple->metLevel = pkm->origins & 0x7F;
-	simple->marking = pkm->marking;
-	simple->trainerId = pkm->trainerId;
-	simple->heldItem = pkm->held_item;
-	simple->IVs = pkm->IVs;
-	simple->metLocation = get_location_name(pkm->met_location, pkm->origins >> 7 & 0xF);
-	if (pkm->language >= 0x201 && pkm->language <= 0x207 && pkm->language != 0x206)
-		simple->language = pkm->language & ~0x200;
-	simple->trainerId = pkm->trainerId;
+
+	baseStats = getBaseStatEntry(pkm.species);
+
+	decode_gen3_string16(simple->nickname, pkm.nickname, 10, pkm.language);
+	decode_gen3_string16(simple->trainerName, pkm.trainerName, 7, pkm.language);
+
+	simple->dexNumber = gen3_index_to_pokedex(pkm.species);
+	simple->exists = 1;
+	simple->isShiny = pkm_is_shiny(&pkm);
+	simple->isEgg = PKM3_IS_EGG(pkm);
+	simple->isBadEgg = checksum != pkm.checksum;
+	simple->spriteIdx = simple->spriteIdxNonEgg = pkm_displayed_species(&pkm);
+	simple->spriteIdx = simple->isEgg ? SPECIES_EGG : simple->spriteIdxNonEgg;
+	simple->isOTFemale = pkm.origins >> 15;
+	simple->metLevel = pkm.origins & 0x7F;
+	simple->marking = pkm.marking;
+	simple->trainerId = pkm.trainerId;
+	simple->heldItem = pkm.held_item;
+	simple->IVs = pkm.IVs;
+	simple->metLocation = get_location_name(pkm.met_location, pkm.origins >> 7 & 0xF);
+	simple->trainerId = pkm.trainerId;
+
+	if (pkm.language >= 0x201 && pkm.language <= 0x207 && pkm.language != 0x206)
+		simple->language = pkm.language & ~0x200;
+
 	if (baseStats->ability[1])
-		simple->ability = get_ability_name(baseStats->ability[pkm->personality & 1]);
+		simple->ability = get_ability_name(baseStats->ability[pkm.personality & 1]);
 	else
 		simple->ability = get_ability_name(baseStats->ability[0]);
+
 	simple->types[0] = baseStats->type[0];
 	simple->types[1] = baseStats->type[1];
+
 	for (int i = 0; i < 4; i++) {
-		simple->moves[i] = pkm->moves[i];
-		simple->movePP[i] = pkm->move_pp[i];
+		simple->moves[i] = pkm.moves[i];
+		simple->movePP[i] = pkm.move_pp[i];
+	}
+
+	// Egg handling
+	if (simple->isBadEgg) {
+		simple->isEgg = 1;
+		simple->spriteIdx = SPECIES_EGG;
+		memcpy(simple->nickname, u"Bad EGG", 16);
+	} else if (simple->isEgg) {
+		simple->spriteIdx = SPECIES_EGG;
+		memcpy(simple->nickname, u"EGG", 8);
 	}
 
 	// Calculate stats
@@ -582,23 +607,23 @@ void pkm3_to_simplepkm(struct SimplePKM *simple, const pkm3_t *pkm) {
 		uint8_t level;
 		uint8_t nature;
 		uint8_t natureMods[6] = {10, 10, 10, 10, 10, 10};
-		nature = pkm->personality % 25;
+		nature = pkm.personality % 25;
 		simple->nature = nature;
 		natureMods[nature / 5 + 1]++;
 		natureMods[nature % 5 + 1]--;
 		growthTable = experienceTables[baseStats->expGrowth];
 		for (level = 0; level < 100; level++) {
-			if (pkm->experience < growthTable[level])
+			if (pkm.experience < growthTable[level])
 				break;
 		}
 		simple->level = level;
 		for (int statIdx = 0; statIdx < 6; statIdx++) {
-			uint8_t iv = pkm->IVs >> (5 * statIdx) & 0x1F;
+			uint8_t iv = pkm.IVs >> (5 * statIdx) & 0x1F;
 			uint32_t stat;
-			stat = 2 * baseStats->stats[statIdx] + iv + pkm->effort[statIdx] / 4;
+			stat = 2 * baseStats->stats[statIdx] + iv + pkm.effort[statIdx] / 4;
 			stat = (stat * level / 100 + 5) * natureMods[statIdx] / 10;
 			simple->stats[statIdx] = (uint16_t) stat;
-			simple->EVs[statIdx] = pkm->effort[statIdx];
+			simple->EVs[statIdx] = pkm.effort[statIdx];
 		}
 		// HP stat uses a slightly different calculation
 		if (simple->dexNumber == 292) // Shedinja
@@ -613,18 +638,18 @@ void pkm3_to_simplepkm(struct SimplePKM *simple, const pkm3_t *pkm) {
 	else if (baseStats->genderRatio == 0xFE)
 		simple->gender = 1;
 	else
-		simple->gender = (pkm->personality & 0xFF) < baseStats->genderRatio;
+		simple->gender = (pkm.personality & 0xFF) < baseStats->genderRatio;
 
 	// Pokeball
 	{
 		uint16_t ball;
-		ball = pkm->origins >> 11 & 0xF;
+		ball = pkm.origins >> 11 & 0xF;
 		if (ball == 0 || ball > 12)
 			ball = 4; // Regular Pokeball
 		simple->pokeball = ball;
 	}
 
-	// TODO also populate simple->form and simple->isBadEgg
+	// TODO also populate simple->form
 }
 
 void print_trainer_info() {
@@ -645,68 +670,6 @@ void print_trainer_info() {
 	iprintf("Play Time: %hd:%02hhd:%02hhd.%03d\n",
 		trainerInfo[0xE], trainerInfo[0x10], trainerInfo[0x11],
 		1000 * (int) trainerInfo[0x12] / 60);
-}
-
-
-int print_pokemon_details(const union pkm_t *pkm) {
-	struct SimplePKM simple;
-
-	pkm3_to_simplepkm(&simple, pkm);
-
-	if (simple.dexNumber == 0) {
-		return 0;
-	}
-	/* TODO replace this with text labels
-	iprintf("OT  %-7s (%s) - %05ld [%05ld]\n",
-		simple.trainerName, simple.isOTFemale ? "F" : "M",
-		simple.trainerId & 0xFFFF, simple.trainerId >> 16);*/
-	iprintf("OT:      %05ld-%05ld\n", simple.trainerId & 0xFFFF, simple.trainerId >> 16);
-	iprintf("Met:     %-23.23s", simple.metLocation);
-	const char *item_name = get_item_name(simple.heldItem);
-	if (item_name)
-		iprintf("Item:    %-23s", item_name);
-	else
-		iprintf("Item:    Invalid (%d)\n", simple.heldItem);
-	iprintf("Nature:  %s\n", get_nature_name(simple.nature));
-	iprintf("Ability: %s\n", simple.ability);
-	if (simple.types[0] == simple.types[1])
-		iprintf("Type:    %s\n", get_type_name(simple.types[0]));
-	else
-		iprintf("Type:    %-8s %s\n",
-			get_type_name(simple.types[0]), get_type_name(simple.types[1]));
-	iprintf("Moves:\n");
-	for (int i = 0; i < 4; i++) {
-		// Because each move is printed to exactly 16 characters, these 4 moves
-		// fill 2 lines perfectly without the need for any newlines
-		const char *move_name = get_move_name(simple.moves[i]);
-		if (move_name)
-			iprintf("  %-14s", move_name);
-		else
-			iprintf("  Invalid: %-3d  ", simple.moves[i]);
-	}
-	iprintf("\n      HP Atk Def Spd SpA SpD\nStat");
-	for (int i = 0; i < 6; i++)
-		iprintf(" %3d", (int) simple.stats[i]);
-	iprintf("\n  EV");
-	for (int i = 0; i < 6; i++)
-		iprintf(" %3d", (int) simple.EVs[i]);
-	iprintf("\n  IV");
-	for (int i = 0; i < 6; i++)
-		iprintf("  %2ld", (simple.IVs >> (5 * i)) & 0x1f);
-	iprintf("\n");
-	iprintf("\nContest: %3d %3d %3d %3d %3d %3d",
-		(int) pkm->contest[0],  (int) pkm->contest[1], (int) pkm->contest[2],
-		(int) pkm->contest[3], (int) pkm->contest[4],  (int) pkm->contest[5]);
-	iprintf(" PID=%08lx  TID=%08lx\n", pkm->personality, pkm->trainerId);
-	for (int i = 0; i < 4; i++) {
-		if (i != 0) iprintf("\n");
-		for (int j = 0; j < 3; j++) {
-			iprintf(" ");
-			for (int k = 0; k < 4; k++)
-				iprintf("%02x", (int) pkm->bytes[32 + i * 12 + j * 4 + k]);
-		}
-	}
-	return 0;
 }
 
 uint16_t decode_pkm_encrypted_data(pkm3_t *dest, const uint8_t *src) {

@@ -18,7 +18,8 @@
 #pragma once
 #include <stdint.h>
 
-extern const uint8_t tilemap_pokeStatusPane[];
-extern const uint8_t tilemap_boxLeftButton[];
-extern const uint8_t tilemap_boxRightButton[];
-extern const uint8_t tilemap_blankWallpaper[];
+typedef struct tilemap {
+	uint8_t width;
+	uint8_t height;
+	uint8_t map[];
+} tilemap_t;

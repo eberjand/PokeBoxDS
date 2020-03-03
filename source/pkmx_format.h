@@ -67,6 +67,8 @@ struct SimplePKM {
 	uint32_t IVs;
 	uint8_t EVs[6];
 	uint16_t dexNumber;
+	uint16_t spriteIdx;
+	uint16_t spriteIdxNonEgg;
 	uint16_t pokeball;
 	uint8_t marking;
 	uint8_t form;
@@ -75,15 +77,19 @@ struct SimplePKM {
 	uint8_t level;
 	uint8_t metLevel;
 	uint8_t language;
+	uint8_t exists : 1;
 	uint8_t isEgg : 1;
 	uint8_t isBadEgg : 1;
 	uint8_t isOTFemale : 1;
 	uint8_t isShiny : 1;
-	uint8_t unusedFlags : 4;
+	uint8_t unusedFlags : 3;
 	uint16_t heldItem;
 	const char *metLocation;
 	const char *ability;
-	uint32_t trainerId;
+	union {
+		uint16_t trainerId16[2];
+		uint32_t trainerId;
+	};
 	uint8_t types[2];
 	uint16_t moves[4];
 	uint8_t movePP[4];

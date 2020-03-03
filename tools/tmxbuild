@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+import argparse
+import struct
+import sys
+import xml.etree.ElementTree as ET
+
+class ParseError(Exception):
+    pass
+
+def parse_args():
+    global outfile, tmxfile
+
+    parser = argparse.ArgumentParser(
+        description='Converts a TMX tilemap file to a binary representation')
+    parser.add_argument('-o', '--output', metavar='outfile', required=True, help='Binary representation of tilemap')
+    parser.add_argument('tmxfile', help='A TMX tilemap file created by Tiled (mapeditor.org)')
+    args = parser.parse_args()
+
+    tmxfile = args.tmxfile
+    outfile = args.output
+
+def parse_tmx_file(filename):
+    tree = ET.parse(filename)
+    root = tree.getroot()
+
+    if root.tag != 'map':
+        raise ParseError("XML file does not seem to be a tilemap")
+
+    if root.attrib.get('orientation', 'orthogonal') != 'orthogonal':
+        raise ParseError('Tilemap orientation must be orthogonal!')
+
+    if root.attrib.get('renderorder', 'right-down') != 'right-down':
+        raise ParseError('Tilemap renderorder must be right-down!')
+
+    if root.attrib.get('compressionlevel', '-1') not in ['-1', '0']:
+        raise ParseError('Tilemap must be uncompressed!')
+
+    firstGID = None
+
+    tilesets = root.findall('tileset')
+    if len(tilesets) != 1:
+        raise ParseError('Tilemap must use exactly one tileset')
+    try:
+        firstGID = int(tilesets[0].attrib.get('firstgid', '0'))
+    except ValueError:
+        raise ParseError('Invalid XML value for tileset.firstgid')
+
+    layers = root.findall('layer')
+    if len(layers) != 1:
+        raise ParseError('Tilemap must have exactly one layer')
+
+    try:
+        width = int(layers[0].attrib['width'])
+        height = int(layers[0].attrib['height'])
+    except ValueError as exc:
+        raise ParseError('Invalid tilemap dimensions') from exc
+
+    layerdata = layers[0].find('data')
+    if layerdata is None:
+        raise ParseError('Tilemap layer data is missing')
+    if layerdata.attrib.get('encoding') != 'csv':
+        raise ParseError('Tilemap encoding must be CSV')
+
+    mapdata = []
+    for line in layerdata.text.strip().splitlines():
+        try:
+            # This "CSV" data ends each line with a comma, so we strip it before splitting
+            mapdata += [int(x)-firstGID for x in line.rstrip(',').split(',')]
+        except ValueError as exc:
+            raise ParseError('Tilemap CSV data error') from exc
+
+    return width, height, mapdata
+
+def write_bin_file(width, height, mapdata, binfile):
+    with open(binfile, 'wb') as fp:
+        fp.write(struct.pack('BB', width, height))
+        fp.write(bytes(mapdata))
+
+def main():
+    parse_args()
+    width, height, mapdata = parse_tmx_file(tmxfile)
+    write_bin_file(width, height, mapdata, outfile)
+
+if __name__ == '__main__':
+    main()

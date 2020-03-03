@@ -19,12 +19,14 @@
 
 #include <stdint.h>
 
+/* These colors are the palette indices from colorFont.png */
 #define FONT_WHITE 1
 #define FONT_GRAY 5
 #define FONT_BLACK 8
 #define FONT_PINK 9
 #define FONT_BLUE 10
 #define FONT_YELLOW 11
+#define FONT_RED 15
 
 struct textLabel {
 	uint8_t screen;
