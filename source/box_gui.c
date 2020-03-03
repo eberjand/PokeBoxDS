@@ -40,6 +40,12 @@
 #include "boxRightButton_map.h"
 #include "pokeStatusPane_map.h"
 #include "summaryScreen_map.h"
+#include "emptyStatusPane_map.h"
+#include "sidePaneButton_map.h"
+#include "sidePaneButtonTop_map.h"
+#include "sidePaneButtonBottom_map.h"
+#include "sidePaneButtonSelect_map.h"
+
 
 /* VRAM layout:
  * 5000000-50001FF (512B) BG Palettes A (Top Screen)
@@ -129,7 +135,7 @@ static uint8_t frontSpriteData[8192];
 #define GUI_FLAG_HOLDING 0x02
 #define GUI_FLAG_HOLDING_MULTIPLE 0x04
 
-static const textLabel_t botLabelGroup = {1, 1, 1, 16};
+//static const textLabel_t botLabelGroup = {1, 1, 1, 16};
 static const textLabel_t botLabelBox3  = {1, 5, 6, 12};
 static const textLabel_t botLabelBox4  = {1, 5, 5, 12};
 static const textLabel_t botLabelsInfo[] = {
@@ -143,9 +149,9 @@ static const textLabel_t topLabelsSummary[] = {
 	{0,  0,  0,  6},
 	{0,  7,  0, 10},
 	{0, 18,  0,  1},
-	{0,  0,  6, 10},
-	{0, 11,  6, 11},
-	{0,  0,  8, 22},
+	{0,  0,  5, 10},
+	{0, 11,  5, 11},
+	{0,  0,  7, 22},
 	{0,  0, 11, 14},
 	{0,  0, 13, 14},
 	{0,  0, 16, 14},
@@ -199,6 +205,7 @@ struct boxgui_state {
 	uint16_t boxIcons1[32 * 30];
 	uint16_t boxIcons2[32 * 30];
 	uint16_t holdIcons[30];
+	uint8_t hoverPkm[PKMX_SIZE];
 	uint8_t boxData1[32 * BOX_SIZE_BYTES_X];
 	uint8_t boxData2[32 * BOX_SIZE_BYTES_X];
 };
@@ -325,6 +332,7 @@ static void update_sidepane_summary(const struct SimplePKM *pkm) {
 	uint8_t genderColor = FONT_BLACK;
 
 	if (!pkm || !pkm->exists) {
+		draw_gui_tilemap(&emptyStatusPane_map, 1, 21, 0);
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
 		oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
@@ -332,6 +340,8 @@ static void update_sidepane_summary(const struct SimplePKM *pkm) {
 			clearText(&textLabels[i]);
 		return;
 	}
+
+	draw_gui_tilemap(&pokeStatusPane_map, 1, 21, 0);
 
 	if (pkm->gender == 0) {
 		genderStr[0] = 0x2642;
@@ -359,30 +369,24 @@ static void update_sidepane_summary(const struct SimplePKM *pkm) {
 	activeSprite ^= 1;
 }
 
-static void status_display_update(const uint8_t *pkm_in, int generation) {
+static void status_display_update(const uint8_t *pkmx) {
 	struct SimplePKM pkm;
 
-	if (generation == 0) {
-		uint8_t curGen = pkm_in[0];
-		/* The other 3 bytes in PKMX are reserved for:
-		 *   curSubGen (eg distinguishing between RSE and FRLG)
-		 *   originGen (keeping track of generation conversions)
-		 *   originSubGen
-		 */
-		if (curGen == 3) {
-			pkm3_to_simplepkm(&pkm, pkm_in + 4);
-		} else {
-			memset(&pkm, 0, sizeof(pkm));
-			if (curGen != 0) {
-				// This allows some level of compatibility with future versions.
-				pkm.exists = 1;
-				pkm.spriteIdx = 252;
-			}
-		}
-	} else if (generation == 3) {
-		pkm3_to_simplepkm(&pkm, pkm_in);
+	uint8_t curGen = pkmx[0];
+	/* The other 3 bytes in PKMX are reserved for:
+	 *   curSubGen (eg distinguishing between RSE and FRLG)
+	 *   originGen (keeping track of generation conversions)
+	 *   originSubGen
+	 */
+	if (curGen == 3) {
+		pkm3_to_simplepkm(&pkm, pkmx + 4);
 	} else {
 		memset(&pkm, 0, sizeof(pkm));
+		if (curGen != 0) {
+			// This allows some level of compatibility with future versions.
+			pkm.exists = 1;
+			pkm.spriteIdx = 252;
+		}
 	}
 
 	update_onescreen_summary(&pkm);
@@ -512,11 +516,14 @@ static void update_cursor(struct boxgui_state *guistate) {
 
 	if (guistate->flags & GUI_FLAG_HOLDING) {
 		move_icon_sprites(OAM_INDEX_HOLDING, icons_x, icons_y);
+		status_display_update(guistate->hoverPkm);
 	} else {
-		status_display_update(guistate->botScreen.boxData +
+		pkm_to_pkmx(guistate->hoverPkm,
+			guistate->botScreen.boxData +
 			guistate->botScreen.activeBox * guistate->botScreen.boxSizeBytes +
 			cur_poke * guistate->botScreen.pkmSize,
 			guistate->botScreen.generation);
+		status_display_update(guistate->hoverPkm);
 	}
 	clear_selection_shadow();
 	if (guistate->flags & (GUI_FLAG_SELECTING | GUI_FLAG_HOLDING)) {
@@ -590,7 +597,7 @@ static int display_box(const struct boxgui_state *guistate) {
 	memcpy((uint8_t*) BG_PALETTE_SUB + 32 * 8, guiTilesetPal, sizeof(guiTilesetPal));
 
 	draw_gui_tilemap(&summaryScreen_map, 0, 0, 0);
-	draw_gui_tilemap(&pokeStatusPane_map, 1, 21, 0);
+	draw_gui_tilemap(&emptyStatusPane_map, 1, 21, 0);
 	if (group->generation == 3) {
 		draw_gui_tilemap(&boxLeftButton_map, 1, 1, 6);
 		draw_gui_tilemap(&boxRightButton_map, 1, 19, 6);
@@ -949,11 +956,71 @@ static void store_holding(struct boxgui_state *guistate) {
 	update_cursor(guistate);
 }
 
+int open_context_menu(struct boxgui_state *guistate, const char *const *opts, int optc) {
+	int out = -1;
+	int selected = 0;
+	uint8_t start_y = 24 - 3 * optc;
+
+	// Clear the Pokemon mini-summary because it occupies the same screen space
+	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
+	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
+	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
+	oamUpdate(&oamSub);
+	for (int i = 0; i < ARRAY_LENGTH(botLabelsInfo); i++)
+		clearText(&botLabelsInfo[i]);
+	draw_gui_tilemap(&emptyStatusPane_map, 1, 21, 0);
+
+	for (int i = 0; i < optc; i++) {
+		textLabel_t label = {1, 22, start_y + i * 3, 9};
+
+		draw_gui_tilemap(&sidePaneButton_map, 1, 21, start_y + i * 3);
+		drawText(&label, FONT_WHITE, FONT_BLACK, opts[i]);
+	}
+	draw_gui_tilemap(&sidePaneButtonSelect_map, 1, 21, start_y);
+	draw_gui_tilemap(&sidePaneButtonTop_map, 1, 21, start_y - 1);
+	draw_gui_tilemap(&sidePaneButtonBottom_map, 1, 21, 23);
+
+	for (;;) {
+		KEYPAD_BITS keys;
+		swiWaitForVBlank();
+
+		scanKeys();
+		keys = keysDown();
+		if (keys & KEY_A) {
+			out = selected;
+			break;
+		} else if (keys & KEY_B) {
+			out = -1;
+			break;
+		} else if (keys & KEY_DOWN) {
+			draw_gui_tilemap(&sidePaneButton_map, 1, 21, start_y + 3 * selected);
+			selected++;
+			if (selected >= optc) selected = 0;
+			draw_gui_tilemap(&sidePaneButtonSelect_map, 1, 21, start_y + 3 * selected);
+		} else if (keys & KEY_UP) {
+			draw_gui_tilemap(&sidePaneButton_map, 1, 21, start_y + 3 * selected);
+			selected--;
+			if (selected < 0) selected = optc - 1;
+			draw_gui_tilemap(&sidePaneButtonSelect_map, 1, 21, start_y + 3 * selected);
+		}
+	}
+
+	for (int i = 0; i < optc; i++) {
+		textLabel_t label = {1, 22, start_y + i * 3, 9};
+		clearText(&label);
+	}
+
+	draw_gui_tilemap(&emptyStatusPane_map, 1, 21, 0);
+
+	return out;
+}
+
 void open_boxes_gui() {
 	struct boxgui_state *guistate;
 	const int NUM_BOXES = 14;
 	uint16_t box_name_buffer[9 * NUM_BOXES];
 	uint16_t *box_names[NUM_BOXES];
+	bool saving = 1;
 
 	sysSetBusOwners(true, true);
 	swiDelay(10);
@@ -1041,7 +1108,18 @@ void open_boxes_gui() {
 			if (guistate->flags & GUI_FLAG_HOLDING) {
 				drop_holding(guistate);
 			} else {
-				break;
+				//break;
+				const char *opts[] = {"Save+Quit", "Quit", "Back"};
+				int selected = -1;
+				selected = open_context_menu(guistate, opts, ARRAY_LENGTH(opts));
+				if (selected == 0) {
+					break;
+				} else if (selected == 1) {
+					saving = 0;
+					break;
+				} else {
+					update_cursor(guistate);
+				}
 			}
 		} else if (keys & KEY_X) {
 			if ((guistate->flags & GUI_FLAG_SELECTING) == 0) {
@@ -1072,11 +1150,13 @@ void open_boxes_gui() {
 	oamDisable(&oamSub);
 	clearConsoles();
 	selectTopConsole();
-	write_boxes_savedata(guistate->boxData1);
-	if (!sd_boxes_save(guistate->boxData2, 0, 32))
-		wait_for_button();
-	else if (!write_savedata()) {
-		wait_for_button();
+	if (saving) {
+		write_boxes_savedata(guistate->boxData1);
+		if (!sd_boxes_save(guistate->boxData2, 0, 32))
+			wait_for_button();
+		else if (!write_savedata()) {
+			wait_for_button();
+		}
 	}
 	free(guistate);
 	clearConsoles();
