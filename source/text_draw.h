@@ -30,7 +30,6 @@ struct textLabel {
 	uint8_t screen;
 	uint8_t x, y;
 	uint8_t length;
-	uint16_t tileIdx;
 };
 typedef struct textLabel textLabel_t;
 

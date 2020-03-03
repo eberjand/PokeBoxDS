@@ -48,17 +48,18 @@
  * 7000400-70007FF (  1k) OAM B (Bottom Screen)
  *
  * BG data for each screen:
- * 0000-07FF console tile map
- * 0800-0FFF console tile map (next box)
- * 1000-17FF wallpaper tile map
- * 1800-1FFF wallpaper tile map (next box)
- * 2000-27FF UI overlays tile map
- * 4000-5FFF console tile data (font, 256 tiles)
- * 6000-7FFF console tile data (unused)
- * 8000-8FFF wallpaper tile data
- * 9000-9FFF wallpaper tile data (next box)
- * A000-BFFF wallpaper tile data (unused)
- * C000-FFFF UI overlays tile data (1024 tiles)
+ * 00000-007FF console tile map
+ * 00800-00FFF console tile map (next box)
+ * 01000-017FF wallpaper tile map
+ * 01800-01FFF wallpaper tile map (next box)
+ * 02000-027FF UI overlays tile map
+ * 04000-05FFF console tile data (8x8 font, 256 tiles)
+ * 06000-0BFFF text drawing (768 tiles)
+ * 0C000-0CFFF wallpaper tile data
+ * 0D000-0DFFF wallpaper tile data (next box)
+ * 0E000-0FFFF wallpaper tile data (unused)
+ * 10000-13FFF UI overlays tile data (512 tiles)
+ * 14000-1FFFF unused
  *
  * BG palettes for each screen:
  * 00    Console text
@@ -98,8 +99,8 @@
 #define BG_MAPBASE_BUTTONS 4
 
 // Tileset offset = BG_GFX + TILEBASE * 0x4000
-#define BG_TILEBASE_WALLPAPER 2
-#define BG_TILEBASE_BUTTONS 3
+#define BG_TILEBASE_WALLPAPER 3
+#define BG_TILEBASE_BUTTONS 4
 
 #define OAM_INDEX_CURSOR 0
 #define OAM_INDEX_BIGSPRITE 0x10
@@ -122,15 +123,15 @@ static uint8_t frontSpriteData[8192];
 #define GUI_FLAG_HOLDING 0x02
 #define GUI_FLAG_HOLDING_MULTIPLE 0x04
 
-static const textLabel_t botLabelGroup = {1, 1, 1, 16, 0x100};
-static const textLabel_t botLabelBox3  = {1, 5, 6, 12, 0x120};
-static const textLabel_t botLabelBox4  = {1, 5, 5, 12, 0x120};
+static const textLabel_t botLabelGroup = {1, 1, 1, 16};
+static const textLabel_t botLabelBox3  = {1, 5, 6, 12};
+static const textLabel_t botLabelBox4  = {1, 5, 5, 12};
 static const textLabel_t botLabelsInfo[] = {
-	{1, 22,  0, 10, 0x140},
-	{1, 22,  2, 10, 0x160},
-	{1, 22, 13, 10, 0x180},
-	{1, 22, 15,  6, 0x1A0},
-	{1, 28, 15,  2, 0x1C0}
+	{1, 22,  0, 10},
+	{1, 22,  2, 10},
+	{1, 22, 13, 10},
+	{1, 22, 15,  6},
+	{1, 28, 15,  2}
 };
 
 struct boxgui_groupView {

@@ -100,6 +100,7 @@ static const uint8_t* getGlyph(uint16_t codepoint, uint8_t *isWide_out) {
 static uint16_t* drawTextPrepare(const textLabel_t *label) {
 	uint16_t *mapRam;
 	uint16_t *tileRam;
+	uint16_t tileIdx;
 	if (label->screen) {
 		mapRam = BG_MAP_RAM_SUB(0);
 		tileRam = BG_TILE_RAM_SUB(1);
@@ -107,11 +108,14 @@ static uint16_t* drawTextPrepare(const textLabel_t *label) {
 		mapRam = BG_MAP_RAM(0);
 		tileRam = BG_TILE_RAM(1);
 	}
-	tileRam += label->tileIdx * 16;
-	memset(tileRam, 0, label->length * 64);
+	tileIdx = 256 + 32 * label->y + label->x;
+	tileRam += tileIdx * 16;
+	memset(tileRam,       0, label->length * 32);
+	memset(tileRam + 512, 0, label->length * 32);
 	for (int i = 0; i < label->length; i++) {
-		mapRam[32 * label->y       + label->x + i] = label->tileIdx + i * 2;
-		mapRam[32 * (label->y + 1) + label->x + i] = label->tileIdx + i * 2 + 1;
+		uint16_t offset = 32 * label->y + label->x + i;
+		mapRam[offset     ] = 256      + offset;
+		mapRam[offset + 32] = 256 + 32 + offset;
 	}
 	return tileRam;
 }
@@ -167,27 +171,24 @@ static void drawTextTile(uint32_t *tileData, const uint8_t *glyphBits, int isWid
 				bits >>= 1;
 				shadowBits >>= 1;
 			}
-			tileData[x * 16 + i] = fourBpp;
+			tileData[(i & 8) * 32 + x * 8 + (i & 7)] = fourBpp;
 		}
 	}
 }
 
 int drawText(const textLabel_t *label, uint8_t fg, uint8_t shadow, const char *text) {
-	uint16_t *tileRam;
+	uint32_t *tileRam;
 	const uint8_t *glyphBits;
 	uint16_t codepoint;
 	int outLen;
-	tileRam = drawTextPrepare(label);
+	tileRam = (uint32_t*) drawTextPrepare(label);
 	outLen = 0;
 	while ((codepoint = utf8_decode_next(text, &text))) {
-		uint32_t tileData[32];
 		uint8_t isWide = 0;
 		glyphBits = getGlyph(codepoint, &isWide);
 		if (outLen + isWide >= label->length)
 			return outLen;
-		drawTextTile(tileData, glyphBits, isWide, fg, shadow);
-		memcpy(tileRam + outLen * 32, tileData,
-			isWide ? sizeof(tileData) : sizeof(tileData) / 2);
+		drawTextTile(tileRam + outLen * 8, glyphBits, isWide, fg, shadow);
 		outLen += 1 + isWide;
 	}
 	return outLen;
@@ -204,21 +205,18 @@ int drawTextFmt(const textLabel_t *label, uint8_t fg, uint8_t shadow, const char
 }
 
 int drawText16(const textLabel_t *label, uint8_t fg, uint8_t shadow, const uint16_t *text) {
-	uint16_t *tileRam;
+	uint32_t *tileRam;
 	const uint8_t *glyphBits;
 	uint16_t codepoint;
 	int outLen;
-	tileRam = drawTextPrepare(label);
+	tileRam = (uint32_t*) drawTextPrepare(label);
 	outLen = 0;
 	for (int cpIdx = 0; ((codepoint = text[cpIdx])); cpIdx++) {
-		uint32_t tileData[32];
 		uint8_t isWide = 0;
 		glyphBits = getGlyph(codepoint, &isWide);
 		if (outLen + isWide >= label->length)
 			return outLen;
-		drawTextTile(tileData, glyphBits, isWide, fg, shadow);
-		memcpy(tileRam + outLen * 32, tileData,
-			isWide ? sizeof(tileData) : sizeof(tileData) / 2);
+		drawTextTile(tileRam + outLen * 8, glyphBits, isWide, fg, shadow);
 		outLen += 1 + isWide;
 	}
 	return outLen;
