@@ -26,6 +26,8 @@
 #include "cursor.h"
 #include "defWallpapers.h"
 #include "guiTileset.h"
+#include "gui_util.h"
+#include "message_window.h"
 #include "pkmx_format.h"
 #include "pokemon_strings.h"
 #include "savedata_gen3.h"
@@ -45,85 +47,6 @@
 #include "sidePaneButtonTop_map.h"
 #include "sidePaneButtonBottom_map.h"
 #include "sidePaneButtonSelect_map.h"
-
-
-/* VRAM layout:
- * 5000000-50001FF (512B) BG Palettes A (Top Screen)
- * 5000200-50003FF (512B) OBJ Palettes A (Top Screen)
- * 5000400-50005FF (512B) BG Palettes B (Bottom Screen)
- * 5000600-50007FF (512B) OBJ Palettes B (Bottom Screen)
- * 6000000-607FFFF (512k) BG VRAM A (Top Screen)
- * 6200000-621FFFF (128k) BG VRAM B (Bottom Screen)
- * 6400000-643FFFF (256k) OBJ VRAM A (Top Screen)
- * 6600000-661FFFF (128k) OBJ VRAM B (Bottom Screen)
- * 7000000-70003FF (  1k) OAM A (Top Screen)
- * 7000400-70007FF (  1k) OAM B (Bottom Screen)
- *
- * BG data for each screen:
- * 00000-007FF console tile map
- * 00800-00FFF console tile map (next box)
- * 01000-017FF wallpaper tile map
- * 01800-01FFF wallpaper tile map (next box)
- * 02000-027FF UI overlays tile map
- * 04000-05FFF console tile data (8x8 font, 256 tiles)
- * 06000-0BFFF text drawing (768 tiles)
- * 0C000-0CFFF wallpaper tile data
- * 0D000-0DFFF wallpaper tile data (next box)
- * 0E000-0FFFF wallpaper tile data (unused)
- * 10000-13FFF UI overlays tile data (512 tiles)
- * 14000-1FFFF unused
- *
- * BG palettes for each screen:
- * 00    Console text
- * 04-07 Current box wallpaper
- * 08    UI overlays
- *
- * OAM entries for each screen: (limit 0x80)
- * 00    Cursor
- * 10    Large front sprite
- * 20-3D Pokemon in holding
- * 40-5D Pokemon in current box
- * 60-7D Pokemon in next box
- *
- * OBJ data for each screen:
- * 00000-001FF Cursor
- * 04000-047FF Large front sprite (double buffered)
- * 08000-0FFFF Pokemon in holding
- * 10000-17FFF Pokemon in current box
- * 18000-1FFFF Pokemon in next box
- *
- * OBJ palettes for each screen: (each palette is 32 bytes)
- * 00-02 Box icon sprites (only 3 palettes are needed total for every species)
- * 04-05 Large front sprite (double buffered)
- * 08    Cursor
- *
- * All the "next box" sections are currently unused, but reserved for
- * implementing the sliding animation in changing between boxes
- */
-
-#define BG_LAYER_TEXT 0
-#define BG_LAYER_BUTTONS 1
-#define BG_LAYER_WALLPAPER 2
-#define BG_LAYER_BACKGROUND 3
-
-// Map offset = VRAM + MAPBASE * 0x800
-#define BG_MAPBASE_WALLPAPER 2
-#define BG_MAPBASE_BUTTONS 4
-
-// Tileset offset = BG_GFX + TILEBASE * 0x4000
-#define BG_TILEBASE_WALLPAPER 3
-#define BG_TILEBASE_BUTTONS 4
-
-#define OAM_INDEX_CURSOR 0
-#define OAM_INDEX_BIGSPRITE 0x10
-#define OAM_INDEX_HOLDING 0x20
-#define OAM_INDEX_CURBOX 0x40
-
-// Sprite gfx = SPRITE_GFX + GFXIDX * 128
-// The boundary size is 128 because we pass SpriteMapping_1D_128 to oamInit
-#define OBJ_GFXIDX_BIGSPRITE 0x80
-#define OBJ_GFXIDX_HOLDING 0x100
-#define OBJ_GFXIDX_CURBOX 0x200
 
 static int activeSprite = 0;
 
@@ -209,23 +132,6 @@ struct boxgui_state {
 	uint8_t boxData1[32 * BOX_SIZE_BYTES_X];
 	uint8_t boxData2[32 * BOX_SIZE_BYTES_X];
 };
-
-static void draw_gui_tilemap(const tilemap_t *tilemap, uint8_t screen, uint8_t x, uint8_t y) {
-	uint8_t width = tilemap->width;
-	uint8_t height = tilemap->height;
-	uint16_t *mapRam;
-	if (screen) {
-		mapRam = BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS);
-	} else {
-		mapRam = BG_MAP_RAM(BG_MAPBASE_BUTTONS);
-	}
-	for (int rowIdx = 0; rowIdx < height; rowIdx++) {
-		for (int colIdx = 0; colIdx < width; colIdx++) {
-			uint16_t tspec = (8 << 12) | tilemap->map[rowIdx * width + colIdx];
-			mapRam[(rowIdx + y) * 32 + colIdx + x] = tspec;
-		}
-	}
-}
 
 static void draw_builtin_wallpaper(const tilemap_t *tilemap, uint8_t screen, uint8_t x, uint8_t y) {
 	uint8_t width = tilemap->width;
@@ -1015,12 +921,20 @@ int open_context_menu(struct boxgui_state *guistate, const char *const *opts, in
 	return out;
 }
 
+static int save_boxes(struct boxgui_state *guistate) {
+	write_boxes_savedata(guistate->boxData1);
+	if (!sd_boxes_save(guistate->boxData2, 0, 32))
+		return 0;
+	else if (!write_savedata())
+		return 0;
+	return 1;
+}
+
 void open_boxes_gui() {
 	struct boxgui_state *guistate;
 	const int NUM_BOXES = 14;
 	uint16_t box_name_buffer[9 * NUM_BOXES];
 	uint16_t *box_names[NUM_BOXES];
-	bool saving = 1;
 
 	sysSetBusOwners(true, true);
 	swiDelay(10);
@@ -1034,6 +948,7 @@ void open_boxes_gui() {
 
 	initConsoles();
 	clearConsoles();
+	set_message_screen(1);
 
 	// Load box names
 	{
@@ -1113,9 +1028,11 @@ void open_boxes_gui() {
 				int selected = -1;
 				selected = open_context_menu(guistate, opts, ARRAY_LENGTH(opts));
 				if (selected == 0) {
-					break;
+					if (save_boxes(guistate))
+						break;
+					display_box(guistate);
+					update_cursor(guistate);
 				} else if (selected == 1) {
-					saving = 0;
 					break;
 				} else {
 					update_cursor(guistate);
@@ -1150,14 +1067,6 @@ void open_boxes_gui() {
 	oamDisable(&oamSub);
 	clearConsoles();
 	selectTopConsole();
-	if (saving) {
-		write_boxes_savedata(guistate->boxData1);
-		if (!sd_boxes_save(guistate->boxData2, 0, 32))
-			wait_for_button();
-		else if (!write_savedata()) {
-			wait_for_button();
-		}
-	}
 	free(guistate);
 	clearConsoles();
 }

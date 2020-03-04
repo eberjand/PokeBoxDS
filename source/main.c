@@ -62,6 +62,15 @@ void findRomAndSav(char *romPath_out, char *savPath_out, const char *path_in) {
 			if (access(savPath_out, F_OK) >= 0)
 				return;
 
+			// M3 Perfect puts saves in the GAMESAVE directory.
+			// They use a special DAT format that starts with the save data we care about.
+			strcpy(savPath_out, "/GAMESAVE");
+			strcat(savPath_out, basename);
+			ext = strrchr(savPath_out, '.');
+			strcpy(ext, ".dat");
+			if (access(savPath_out, F_OK) >= 0)
+				return;
+
 			// GBA Exploader puts saves in the GBA_SAVE directory
 			strcpy(savPath_out, "/GBA_SAVE");
 			strcat(savPath_out, basename);

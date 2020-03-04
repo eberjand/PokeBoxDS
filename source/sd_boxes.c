@@ -22,6 +22,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "message_window.h"
 #include "pkmx_format.h"
 #include "util.h"
 
@@ -66,7 +67,7 @@ int sd_boxes_load(uint8_t *boxData, uint8_t group, uint8_t *numBoxes_out) {
 	if (!fp) {
 		if (errno != ENOENT) {
 			fclose(fp);
-			iprintf("Error loading SD boxes: File open failed (%d)\n", errno);
+			open_message_window("Error loading SD boxes: File open failed (%d)", errno);
 		}
 		// Initialize 32 empty boxes by default
 		*numBoxes_out = 32;
@@ -78,12 +79,12 @@ int sd_boxes_load(uint8_t *boxData, uint8_t group, uint8_t *numBoxes_out) {
 		memcmp(fileHeader.magic, BOXDATA_MAGIC, sizeof(fileHeader.magic));
 	if (rc) {
 		fclose(fp);
-		iprintf("Error loading SD boxes: Invalid file type\n");
+		open_message_window("Error loading SD boxes: Invalid file type");
 		return 0;
 	}
 	if (fileHeader.version != 0) {
 		fclose(fp);
-		iprintf("Error loading SD boxes: Invalid file version\n");
+		open_message_window("Error loading SD boxes: Invalid file version");
 		return 0;
 	}
 
@@ -94,7 +95,7 @@ int sd_boxes_load(uint8_t *boxData, uint8_t group, uint8_t *numBoxes_out) {
 	rc = fread(&slotHeader, 1, sizeof(slotHeader), fp);
 	if (rc < sizeof(slotHeader)) {
 		fclose(fp);
-		iprintf("Error loading SD boxes: Unexpected EOF\n");
+		open_message_window("Error loading SD boxes: Unexpected EOF");
 		return 0;
 	}
 
@@ -112,9 +113,9 @@ int sd_boxes_load(uint8_t *boxData, uint8_t group, uint8_t *numBoxes_out) {
 	rc = fread(boxData, 1, readSize, fp);
 	if (rc < readSize) {
 		if (feof(fp))
-			iprintf("Error loading SD boxes: Unexpected EOF\n");
+			open_message_window("Error loading SD boxes: Unexpected EOF");
 		else
-			iprintf("Error loading SD boxes: Read error (%d)\n", errno);
+			open_message_window("Error loading SD boxes: Read error (%d)", errno);
 		fclose(fp);
 		return 0;
 	}
@@ -157,7 +158,7 @@ static int sd_boxes_create(uint8_t *boxData, uint8_t group, uint16_t numBoxes) {
 	// Create a new file
 	fp = fopen("/pokebox/boxes/group000.bin", "wb");
 	if (fp < 0) {
-		iprintf("Error saving SD boxes: File create failed (%d)\n", errno);
+		open_message_window("Error saving SD boxes: File create failed (%d)", errno);
 		return 0;
 	}
 
@@ -204,7 +205,7 @@ static int sd_boxes_create(uint8_t *boxData, uint8_t group, uint16_t numBoxes) {
 	return 1;
 
 create_write_error:
-	iprintf("Error saving SD boxes: Write error (%d)\n", errno);
+	open_message_window("Error saving SD boxes: Write error (%d)", errno);
 	fclose(fp);
 	return 0;
 }
@@ -220,11 +221,11 @@ static int sd_boxes_update(uint8_t *boxData, uint16_t numBoxes, FILE *fp) {
 	rc = fread(&fileHeader, 1, sizeof(fileHeader), fp) < sizeof(fileHeader) ||
 		memcmp(fileHeader.magic, BOXDATA_MAGIC, sizeof(fileHeader.magic));
 	if (rc) {
-		iprintf("Error saving SD boxes: Invalid file type\n");
+		open_message_window("Error saving SD boxes: Invalid file type");
 		return 0;
 	}
 	if (fileHeader.version != 0) {
-		iprintf("Error saving SD boxes: Invalid file version\n");
+		open_message_window("Error saving SD boxes: Invalid file version");
 		return 0;
 	}
 
@@ -283,7 +284,7 @@ static int sd_boxes_update(uint8_t *boxData, uint16_t numBoxes, FILE *fp) {
 	return 1;
 
 update_write_error:
-	iprintf("Error saving SD boxes: Write error (%d)\n", errno);
+	open_message_window("Error saving SD boxes: Write error (%d)", errno);
 	return 0;
 }
 
@@ -293,13 +294,13 @@ int sd_boxes_save(uint8_t *boxData, uint8_t group, uint16_t numBoxes) {
 	struct stat s;
 
 	if (numBoxes <= 0 || numBoxes >= 256) {
-		iprintf("Error saving SD boxes: Too many boxes in group\n");
+		open_message_window("Error saving SD boxes: Too many boxes in group");
 		return 0;
 	}
 
 	// Create the needed directories if they don't already exist
 	if (mkdir("/pokebox", 0777) < 0 && errno != EEXIST) {
-		iprintf("Error saving SD boxes: Unable to create directories\n");
+		open_message_window("Error saving SD boxes: Unable to create directories");
 		return 0;
 	}
 	if (mkdir("/pokebox/boxes", 0777) < 0) {
@@ -308,7 +309,7 @@ int sd_boxes_save(uint8_t *boxData, uint8_t group, uint16_t numBoxes) {
 			stat("/pokebox/boxes", &s) < 0 ||
 			(s.st_mode & S_IFDIR) == 0;
 		if (createFail) {
-			iprintf("Error saving SD boxes: Unable to create directories\n");
+			open_message_window("Error saving SD boxes: Unable to create directories");
 			return 0;
 		}
 	}
@@ -319,7 +320,7 @@ int sd_boxes_save(uint8_t *boxData, uint8_t group, uint16_t numBoxes) {
 
 	fp = fopen("/pokebox/boxes/group000.bin", "r+b");
 	if (fp < 0) {
-		iprintf("Error saving SD boxes: File open failed (%d)\n", errno);
+		open_message_window("Error saving SD boxes: File open failed (%d)", errno);
 		return 0;
 	}
 

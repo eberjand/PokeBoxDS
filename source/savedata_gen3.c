@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "asset_manager.h"
+#include "message_window.h"
 #include "pkmx_format.h"
 #include "pokemon_strings.h"
 #include "string_gen3.h"
@@ -323,8 +324,6 @@ int write_savedata(void) {
 	int success = 1;
 	uint32_t seek;
 
-	iprintf("Saving...\n");
-
 	// Increment the save index in every section
 	for (int sectionIdx = 0; sectionIdx < SAVEDATA_NUM_SECTIONS; sectionIdx++) {
 		union SaveSlotFooter *footer =
@@ -342,7 +341,7 @@ int write_savedata(void) {
 		fseek(fp, savedata_active_slot ? 0 : 0xE000, SEEK_SET);
 		rc = fwrite(savedata_buffer, 1, sizeof(savedata_buffer), fp);
 		if (rc < sizeof(savedata_buffer)) {
-			iprintf("Error writing save file\n");
+			open_message_window("Error writing save file");
 			success = 0;
 		}
 		fclose(fp);
