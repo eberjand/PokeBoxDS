@@ -70,6 +70,8 @@ struct SimplePKM {
 	uint16_t spriteIdx;
 	uint16_t spriteIdxNonEgg;
 	uint16_t pokeball;
+	uint16_t curGameId;
+	uint16_t originGameId;
 	uint8_t marking;
 	uint8_t form;
 	uint8_t gender;
@@ -95,6 +97,7 @@ struct SimplePKM {
 	uint8_t movePP[4];
 };
 
-void pkm_to_pkmx(uint8_t *pkmx, const uint8_t *pkm, int generation);
+void pkm_to_pkmx(uint8_t *pkmx, const uint8_t *pkm, uint16_t gameId);
 int pkmx_convert_generation(uint8_t *pkmx, int generation);
 int pkmx_to_pkm(uint8_t *pkm, uint8_t *pkmx, int generation);
+void pkmx_to_simplepkm(struct SimplePKM *simple, const uint8_t *pkmx);

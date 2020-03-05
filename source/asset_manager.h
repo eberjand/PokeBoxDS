@@ -26,6 +26,8 @@ extern const char *activeGameName;
 extern const char *activeGameNameShort;
 extern int activeGameId;
 extern int activeGameLanguage;
+extern uint8_t activeGameGen;
+extern uint8_t activeGameSubGen;
 
 #define IS_RUBY_SAPPHIRE (activeGameId == 0 || activeGameId == 1)
 #define IS_FIRERED_LEAFGREEN (activeGameId == 2 || activeGameId == 3)

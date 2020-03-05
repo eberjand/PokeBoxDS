@@ -20,9 +20,12 @@
 
 #include <string.h>
 #include "savedata_gen3.h"
+#include "util.h"
 
-void pkm_to_pkmx(uint8_t *pkmx, const uint8_t *pkm, int generation) {
-	if (generation == 0) {
+void pkm_to_pkmx(uint8_t *pkmx, const uint8_t *pkm, uint16_t gameId) {
+	uint8_t generation = gameId & 0xFF;
+
+	if (gameId == 0) {
 		memcpy(pkmx, pkm, PKMX_SIZE);
 	} else if (generation == 3) {
 		pkm3_t decoded;
@@ -32,7 +35,7 @@ void pkm_to_pkmx(uint8_t *pkmx, const uint8_t *pkm, int generation) {
 		decode_pkm_encrypted_data(&decoded, pkm);
 		if (decoded.species == 0)
 			return;
-		pkmx[0] = 3;
+		SET16(pkmx, 0) = gameId;
 		memcpy(pkmx + 4, pkm, PKM3_SIZE);
 	}
 }
@@ -54,4 +57,26 @@ int pkmx_to_pkm(uint8_t *pkm, uint8_t *pkmx, int generation) {
 		return 0;
 	}
 	return 1;
+}
+
+void pkmx_to_simplepkm(struct SimplePKM *pkm, const uint8_t *pkmx) {
+	uint8_t generation = pkmx[0];
+	memset(pkm, 0, sizeof(struct SimplePKM));
+
+	pkm->curGameId = pkm->originGameId = GET16(pkmx, 0);
+	/* The other 2 bytes in PKMX are reserved for:
+	 *   originGen (keeping track of generation conversions)
+	 *   originSubGen
+	 */
+
+	if (generation == 3) {
+		pkm3_to_simplepkm(pkm, pkmx + 4);
+	} else {
+		memset(pkm, 0, sizeof(*pkm));
+		if (generation != 0) {
+			// This allows some level of compatibility with future versions.
+			pkm->exists = 1;
+			pkm->spriteIdx = 252;
+		}
+	}
 }

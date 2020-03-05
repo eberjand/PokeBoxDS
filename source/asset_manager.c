@@ -39,6 +39,8 @@ const char *activeGameName;
 const char *activeGameNameShort;
 int activeGameId;
 int activeGameLanguage;
+uint8_t activeGameGen;
+uint8_t activeGameSubGen;
 
 static uint16_t tileGfxCompressed[4096];
 
@@ -190,10 +192,13 @@ static bool initFromHeader(tGBAHeader *header) {
 	int has_name = 0;
 	int has_language = 0;
 
+	activeGameGen = 3;
+
 	// Determine the game name
 	for (int i = 0; i < ARRAY_LENGTH(game_names); i++) {
 		if (gamecode == GET32(game_names[i].gamecode, 0)) {
 			activeGameId = game_names[i].gameId;
+			activeGameSubGen = (uint8_t) activeGameId;
 			activeGameName = game_names[i].nameLong;
 			activeGameNameShort = game_names[i].nameShort;
 			has_name = 1;

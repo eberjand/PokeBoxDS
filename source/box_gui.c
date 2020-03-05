@@ -101,7 +101,15 @@ struct boxgui_groupView {
 	uint8_t groupIdx;
 	int8_t activeBox;
 	uint8_t numBoxes;
-	uint8_t generation;
+	uint8_t unused_1;
+	union {
+		uint16_t gameId;
+		struct {
+			uint8_t generation;
+			uint8_t subgen;
+		};
+	};
+	uint16_t unused_2;
 	uint16_t pkmSize;
 	uint16_t boxSizeBytes;
 	uint16_t **boxNames;
@@ -150,6 +158,31 @@ static void draw_builtin_wallpaper(const tilemap_t *tilemap, uint8_t screen, uin
 	}
 }
 
+#include "carts_gen3_24px.h"
+#include "carts_gen4_24px.h"
+#include "carts_gen5_24px.h"
+
+static void load_cart_sprite(uint8_t *gfx, uint8_t *pal, uint16_t gameId) {
+	uint8_t generation, subgen;
+
+	generation = gameId & 0xFF;
+	subgen = gameId >> 8;
+
+	if (generation == 3 && subgen < 5) {
+		memcpy(gfx, (uint8_t*) carts_gen3_24pxTiles + subgen * 512, 512);
+		memcpy(pal, carts_gen3_24pxPal, 32);
+	} else if (generation == 4 && subgen < 5) {
+		memcpy(gfx, (uint8_t*) carts_gen4_24pxTiles + subgen * 512, 512);
+		memcpy(pal, carts_gen4_24pxPal, 32);
+	} else if (generation == 5 && subgen < 4) {
+		memcpy(gfx, (uint8_t*) carts_gen5_24pxTiles + subgen * 512, 512);
+		memcpy(pal, carts_gen5_24pxPal, 32);
+	} else {
+		memcpy(gfx, (uint8_t*) carts_gen3_24pxTiles + 7 * 512, 512);
+		memcpy(pal, carts_gen3_24pxPal, 32);
+	}
+}
+
 static void update_onescreen_summary(const struct SimplePKM *pkm) {
 	const textLabel_t *textLabels = topLabelsSummary;
 	uint8_t palette[32];
@@ -160,6 +193,9 @@ static void update_onescreen_summary(const struct SimplePKM *pkm) {
 	int stat_worst = -1;
 
 	if (!pkm || !pkm->exists) {
+		oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[0] = 0;
+		oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[1] = 0;
+		oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[2] = 0;
 		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
 		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
 		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
@@ -223,6 +259,15 @@ static void update_onescreen_summary(const struct SimplePKM *pkm) {
 	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].palette = 4 + 0;
 	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].gfxIndex = OBJ_GFXIDX_BIGSPRITE + 0 * 16;
 
+	load_cart_sprite(
+		(uint8_t*) SPRITE_GFX + OBJ_GFXIDX_CURBOX * 128,
+		(uint8_t*) SPRITE_PALETTE + 32 * 9,
+		pkm->originGameId);
+	oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[0] = OBJ_Y(12) | ATTR0_COLOR_16;
+	oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[1] = OBJ_X(0) | ATTR1_SIZE_32;
+	oamMain.oamMemory[OAM_INDEX_CURBOX].palette = 9;
+	oamMain.oamMemory[OAM_INDEX_CURBOX].gfxIndex = OBJ_GFXIDX_CURBOX;
+
 	/* TODO: Add a row of icons at Y=16
 	 * X=00 Cartridge icon for origin game
 	 * X=32 Ball
@@ -278,23 +323,7 @@ static void update_sidepane_summary(const struct SimplePKM *pkm) {
 static void status_display_update(const uint8_t *pkmx) {
 	struct SimplePKM pkm;
 
-	uint8_t curGen = pkmx[0];
-	/* The other 3 bytes in PKMX are reserved for:
-	 *   curSubGen (eg distinguishing between RSE and FRLG)
-	 *   originGen (keeping track of generation conversions)
-	 *   originSubGen
-	 */
-	if (curGen == 3) {
-		pkm3_to_simplepkm(&pkm, pkmx + 4);
-	} else {
-		memset(&pkm, 0, sizeof(pkm));
-		if (curGen != 0) {
-			// This allows some level of compatibility with future versions.
-			pkm.exists = 1;
-			pkm.spriteIdx = 252;
-		}
-	}
-
+	pkmx_to_simplepkm(&pkm, pkmx);
 	update_onescreen_summary(&pkm);
 	update_sidepane_summary(&pkm);
 }
@@ -428,7 +457,7 @@ static void update_cursor(struct boxgui_state *guistate) {
 			guistate->botScreen.boxData +
 			guistate->botScreen.activeBox * guistate->botScreen.boxSizeBytes +
 			cur_poke * guistate->botScreen.pkmSize,
-			guistate->botScreen.generation);
+			guistate->botScreen.gameId);
 		status_display_update(guistate->hoverPkm);
 	}
 	clear_selection_shadow();
@@ -824,8 +853,8 @@ static void store_holding(struct boxgui_state *guistate) {
 			srcBoxIcons[srcIdx] = dstBoxIcons[dstIdx];
 			dstBoxIcons[dstIdx] = guistate->holdIcons[y * 6 + x];
 
-			pkm_to_pkmx(tmpPkm1, srcPkm, srcGroup->generation);
-			pkm_to_pkmx(tmpPkm2, dstPkm, dstGroup->generation);
+			pkm_to_pkmx(tmpPkm1, srcPkm, srcGroup->gameId);
+			pkm_to_pkmx(tmpPkm2, dstPkm, dstGroup->gameId);
 
 			// If unable to put a Pokemon down, keep it in holding
 			if (!pkmx_convert_generation(tmpPkm1, dstGroup->generation))
@@ -925,7 +954,7 @@ static int save_boxes(struct boxgui_state *guistate) {
 	write_boxes_savedata(guistate->boxData1);
 	if (!sd_boxes_save(guistate->boxData2, 0, 32))
 		return 0;
-	else if (!write_savedata())
+	if (!write_savedata())
 		return 0;
 	return 1;
 }
@@ -948,7 +977,7 @@ void open_boxes_gui() {
 
 	initConsoles();
 	clearConsoles();
-	set_message_screen(1);
+	set_message_screen(0);
 
 	// Load box names
 	{
@@ -967,7 +996,7 @@ void open_boxes_gui() {
 	guistate->botScreen.boxNames = box_names;
 	guistate->botScreen.boxWallpapers = GET_SAVEDATA_SECTION(13) + 0x7C2;
 	guistate->botScreen.groupIdx = 0x40;
-	guistate->botScreen.generation = 3;
+	guistate->botScreen.gameId = activeGameGen | ((uint16_t) activeGameSubGen << 8);
 	guistate->botScreen.numBoxes = 14;
 	guistate->botScreen.pkmSize = PKM3_SIZE;
 	guistate->botScreen.boxSizeBytes = PKM3_SIZE * 30;
@@ -975,7 +1004,7 @@ void open_boxes_gui() {
 	guistate->botScreen.boxData = guistate->boxData1;
 	guistate->botScreen.boxIcons = guistate->boxIcons1;
 	guistate->topScreen.groupIdx = 0;
-	guistate->topScreen.generation = 0;
+	guistate->topScreen.gameId = 0;
 	guistate->topScreen.numBoxes = 32;
 	guistate->topScreen.boxData = guistate->boxData2;
 	guistate->topScreen.boxIcons = guistate->boxIcons2;
@@ -983,9 +1012,9 @@ void open_boxes_gui() {
 	guistate->topScreen.boxSizeBytes = PKMX_SIZE * 30;
 
 	if (!sd_boxes_load(guistate->topScreen.boxData, 0, &guistate->topScreen.numBoxes)) {
+		open_message_window("Error loading from SD card");
 		free(guistate);
-		iprintf("Error loading from SD card\n");
-		wait_for_button();
+		return;
 	}
 
 	oamInit(&oamMain, SpriteMapping_1D_128, false);
@@ -1023,7 +1052,6 @@ void open_boxes_gui() {
 			if (guistate->flags & GUI_FLAG_HOLDING) {
 				drop_holding(guistate);
 			} else {
-				//break;
 				const char *opts[] = {"Save+Quit", "Quit", "Back"};
 				int selected = -1;
 				selected = open_context_menu(guistate, opts, ARRAY_LENGTH(opts));

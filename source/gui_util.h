@@ -47,9 +47,11 @@
  * 14000-1FFFF unused
  *
  * BG palettes for each screen:
- * 00    Console text
- * 04-07 Current box wallpaper
- * 08    UI overlays
+ * 000-01F (00)    Console text
+ * 020-07F (01-03) unused
+ * 080-0FF (04-07) Current box wallpaper
+ * 100-11F (08)    UI overlays
+ * 120-1FF (09-15) unused
  *
  * OAM entries for each screen: (limit 0x80)
  * 00    Cursor
@@ -66,9 +68,11 @@
  * 18000-1FFFF Pokemon in next box
  *
  * OBJ palettes for each screen: (each palette is 32 bytes)
- * 00-02 Box icon sprites (only 3 palettes are needed total for every species)
- * 04-05 Large front sprite (double buffered)
- * 08    Cursor
+ * 000-05F (00-02) Box icon sprites (only 3 palettes are needed total for every species)
+ * 080-0BF (04-05) Large front sprite (double buffered)
+ * 100-11F (08)    Cursor
+ * 120-13F (09)    Cartridge icon
+ * 140-1FF (10-15) unused
  *
  * All the "next box" sections are currently unused, but reserved for
  * implementing the sliding animation in changing between boxes

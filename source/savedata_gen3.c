@@ -549,7 +549,6 @@ void pkm3_to_simplepkm(struct SimplePKM *simple, const uint8_t *src) {
 
 	checksum = decode_pkm_encrypted_data(&pkm, src);
 
-	memset(simple, 0, sizeof(struct SimplePKM));
 	if (pkm.species == 0)
 		return;
 
