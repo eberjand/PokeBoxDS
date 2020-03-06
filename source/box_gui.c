@@ -25,7 +25,7 @@
 #include "console_helper.h"
 #include "cursor.h"
 #include "defWallpapers.h"
-#include "guiTileset.h"
+#include "boxesTileset.h"
 #include "gui_util.h"
 #include "message_window.h"
 #include "pkmx_format.h"
@@ -526,10 +526,10 @@ static int display_box(const struct boxgui_state *guistate) {
 	memset(BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS), 0, 2048);
 	memset(BG_MAP_RAM_SUB(BG_MAPBASE_WALLPAPER), 0, 2048);
 
-	memcpy(BG_TILE_RAM(BG_TILEBASE_BUTTONS), guiTilesetTiles, sizeof(guiTilesetTiles));
-	memcpy((uint8_t*) BG_PALETTE + 32 * 8, guiTilesetPal, sizeof(guiTilesetPal));
-	memcpy(BG_TILE_RAM_SUB(BG_TILEBASE_BUTTONS), guiTilesetTiles, sizeof(guiTilesetTiles));
-	memcpy((uint8_t*) BG_PALETTE_SUB + 32 * 8, guiTilesetPal, sizeof(guiTilesetPal));
+	memcpy(BG_TILE_RAM(BG_TILEBASE_BUTTONS), boxesTilesetTiles, sizeof(boxesTilesetTiles));
+	memcpy((uint8_t*) BG_PALETTE + 32 * 8, boxesTilesetPal, sizeof(boxesTilesetPal));
+	memcpy(BG_TILE_RAM_SUB(BG_TILEBASE_BUTTONS), boxesTilesetTiles, sizeof(boxesTilesetTiles));
+	memcpy((uint8_t*) BG_PALETTE_SUB + 32 * 8, boxesTilesetPal, sizeof(boxesTilesetPal));
 
 	draw_gui_tilemap(&summaryScreen_map, 0, 0, 0);
 	draw_gui_tilemap(&emptyStatusPane_map, 1, 21, 0);

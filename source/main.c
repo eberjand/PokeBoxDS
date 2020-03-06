@@ -27,58 +27,8 @@
 #include "console_helper.h"
 #include "file_picker.h"
 #include "savedata_gen3.h"
+#include "savefile_picker.h"
 #include "util.h"
-
-void findRomAndSav(char *romPath_out, char *savPath_out, const char *path_in) {
-	int len;
-
-	// For now, this just looks for ROM+SAV in the same directory with the same base name.
-	strcpy(romPath_out, path_in);
-	strcpy(savPath_out, path_in);
-	len = strlen(path_in);
-	if (len > 4) {
-		char *ext = romPath_out + len - 4;
-		const char *basename;
-
-		// keep the leading slash in basename for simpler concatenation
-		basename = strrchr(romPath_out, '/');
-		if (!basename)
-			basename = romPath_out;
-
-		if (!strcmp(ext, ".sav"))
-			// Check for a .gba file in the same directory
-			strcpy(romPath_out + len - 4, ".gba");
-		else if (!strcmp(ext, ".gba")) {
-			// Check for a .sav file in the same directory
-			strcpy(savPath_out + len - 4, ".sav");
-			if (access(savPath_out, F_OK) >= 0)
-				return;
-
-			// EZ-Flash IV and Omega put saves in the SAVER directory.
-			strcpy(savPath_out, "/SAVER");
-			strcat(savPath_out, basename);
-			ext = strrchr(savPath_out, '.');
-			strcpy(ext, ".sav");
-			if (access(savPath_out, F_OK) >= 0)
-				return;
-
-			// M3 Perfect puts saves in the GAMESAVE directory.
-			// They use a special DAT format that starts with the save data we care about.
-			strcpy(savPath_out, "/GAMESAVE");
-			strcat(savPath_out, basename);
-			ext = strrchr(savPath_out, '.');
-			strcpy(ext, ".dat");
-			if (access(savPath_out, F_OK) >= 0)
-				return;
-
-			// GBA Exploader puts saves in the GBA_SAVE directory
-			strcpy(savPath_out, "/GBA_SAVE");
-			strcat(savPath_out, basename);
-			ext = strrchr(savPath_out, '.');
-			strcpy(ext, ".sav");
-		}
-	}
-}
 
 static char savPath[512] = {};
 static char romPath[512] = {};
@@ -94,7 +44,8 @@ void openGameFromSD() {
 			return;
 
 		selectBottomConsole();
-		findRomAndSav(romPath, savPath, romPath);
+		if (!savefilePicker(savPath, romPath, sizeof(savPath)))
+			return;
 
 		if (!assets_init_romfile(romPath))
 			assets_init_placeholder();
