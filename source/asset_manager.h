@@ -56,6 +56,8 @@ _Bool assets_init_cart();
 _Bool assets_init_romfile(const char *file);
 void assets_free();
 
+int read_romfile_gameid(const char *file);
+
 uint8_t getIconPaletteIdx(uint16_t species);
 // Returned pointer is only valid until the next call of either function
 const uint16_t* getIconImage(uint16_t species);

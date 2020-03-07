@@ -17,8 +17,19 @@
  */
 #pragma once
 
+// General-purpose macros
 #define ARRAY_LENGTH(array) (sizeof((array))/sizeof((array)[0]))
 
+#define MAX(a, b) ({ \
+	__typeof__ (a) _a = (a); \
+	__typeof__ (b) _b = (b); \
+	_a > _b ? _a : _b; })
+#define MIN(a, b) ({  \
+	__typeof__ (a) _a = (a); \
+	__typeof__ (b) _b = (b); \
+	_a < _b ? _a : _b; })
+
+// Shorter alternatives to uint*_t
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned long u32;

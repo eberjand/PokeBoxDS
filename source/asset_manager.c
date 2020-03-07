@@ -300,6 +300,28 @@ void assets_free() {
 	activeGameLanguage = -1;
 }
 
+int read_romfile_gameid(const char *file) {
+	FILE *fp;
+	int gameid = -1;
+	uint32_t gamecode;
+	tGBAHeader header;
+
+	fp = fopen(file, "rb");
+	if (fp == NULL)
+		return -1;
+
+	fread(&header, sizeof(header), 1, fp);
+	gamecode = GET32(header.gamecode, 0);
+
+	for (int i = 0; i < ARRAY_LENGTH(game_names); i++) {
+		if (gamecode == GET32(game_names[i].gamecode, 0)) {
+			gameid = game_names[i].gameId;
+			break;
+		}
+	}
+	return gameid;
+}
+
 uint32_t readRomWord(void *address) {
 	uint32_t out = 0;
 	if (handler.assetSource == ASSET_SOURCE_CART) {

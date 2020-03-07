@@ -183,7 +183,7 @@ int drawText(const textLabel_t *label, uint8_t fg, uint8_t shadow, const char *t
 	int outLen;
 	tileRam = (uint32_t*) drawTextPrepare(label);
 	outLen = 0;
-	while ((codepoint = utf8_decode_next(text, &text))) {
+	while ((codepoint = utf8_decode_next(text, &text)) && codepoint != '\n') {
 		uint8_t isWide = 0;
 		glyphBits = getGlyph(codepoint, &isWide);
 		if (outLen + isWide >= label->length)
@@ -211,7 +211,7 @@ int drawText16(const textLabel_t *label, uint8_t fg, uint8_t shadow, const uint1
 	int outLen;
 	tileRam = (uint32_t*) drawTextPrepare(label);
 	outLen = 0;
-	for (int cpIdx = 0; ((codepoint = text[cpIdx])); cpIdx++) {
+	for (int cpIdx = 0; ((codepoint = text[cpIdx])) && codepoint != '\n'; cpIdx++) {
 		uint8_t isWide = 0;
 		glyphBits = getGlyph(codepoint, &isWide);
 		if (outLen + isWide >= label->length)

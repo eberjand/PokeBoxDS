@@ -23,7 +23,8 @@
 
 #include "file_picker.h"
 #include "gui_util.h"
-#include "text_draw.h"
+#include "list_menu.h"
+//#include "text_draw.h"
 
 #include "generalTileset.h"
 #include "listHeader_map.h"
@@ -78,12 +79,8 @@ static void savefileLocationToPath(char *sav_path, const char *rom_path, int loc
 	}
 }
 
-static void update_savefile_preview(int loc) {
-	// TODO
-}
-
 int savefilePicker(char *sav_path, const char *rom_path, size_t path_max) {
-	int files[4];
+	struct ListMenuItem menu_items[5];
 	int filec = 0;
 	int selected = 0;
 	int out = 0;
@@ -98,83 +95,44 @@ int savefilePicker(char *sav_path, const char *rom_path, size_t path_max) {
 	for (int i = 0; i < SAVEFILE_LOC_MAX; i++) {
 		savefileLocationToPath(sav_path, rom_path, i);
 		if (access(sav_path, F_OK) >= 0) {
-			files[filec++] = i;
+			menu_items[filec].str = descriptions[i];
+			menu_items[filec].extra = i;
+			filec++;
 		}
 	}
 
 	if (!filec) {
-		return filePicker(sav_path, path_max);
+		strcpy(sav_path, "/");
+		return file_picker(sav_path, path_max, FILE_FILTER_SAV, "Select a SAV file");
 	}
 
-	bgInit(BG_LAYER_BUTTONS, BgType_Text4bpp, BgSize_T_256x256,
-		BG_MAPBASE_BUTTONS, BG_TILEBASE_BUTTONS);
-	bgInitSub(BG_LAYER_BUTTONS, BgType_Text4bpp, BgSize_T_256x256,
-		BG_MAPBASE_BUTTONS, BG_TILEBASE_BUTTONS);
-	memset(BG_MAP_RAM(BG_MAPBASE_BUTTONS), 0, 2048);
-	memset(BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS), 0, 2048);
-	memcpy(BG_TILE_RAM(BG_TILEBASE_BUTTONS), generalTilesetTiles, sizeof(generalTilesetTiles));
-	memcpy((uint8_t*) BG_PALETTE + 32 * 8, generalTilesetPal, sizeof(generalTilesetPal));
-	memcpy(BG_TILE_RAM_SUB(BG_TILEBASE_BUTTONS), generalTilesetTiles, sizeof(generalTilesetTiles));
-	memcpy((uint8_t*) BG_PALETTE_SUB + 32 * 8, generalTilesetPal, sizeof(generalTilesetPal));
-
-	resetTextLabels(0);
-	resetTextLabels(1);
-
-	{
-		textLabel_t headLabel = {1, 0, 0, 32};
-		drawText(&headLabel, FONT_WHITE, FONT_BLACK, "Select a save file:");
-		draw_gui_tilemap(&listHeader_map, 1, 0, 0);
-	}
-
-	for (int i = 0; i < filec; i++) {
-		textLabel_t label = {1, 2, 2 + i * 4, 30};
-		drawText(&label, FONT_WHITE, FONT_BLACK, descriptions[files[i]]);
-		draw_gui_tilemap(&listUnselected_map, 1, 0, 2 + i * 4);
-	}
-
-	{
-		textLabel_t browseLabel = {1, 2, 2 + filec * 4, 30};
-		drawText(&browseLabel, FONT_WHITE, FONT_BLACK, "Browse...");
-		draw_gui_tilemap(&listUnselected_map, 1, 0, 2 + filec * 4);
-	}
-
-	draw_gui_tilemap(&listSelected_map, 1, 0, 2 + selected * 4);
-	update_savefile_preview(selected < filec ? files[selected] : -1);
+	// Always add a file browse option
+	menu_items[filec].str = "Browse...";
+	menu_items[filec].extra = -1;
+	filec++;
 
 	for (;;) {
-		KEYPAD_BITS keys;
-		swiWaitForVBlank();
+		struct ListMenuConfig menu_cfg = {
+			.header1 = "Select a save file:",
+			.items = menu_items,
+			.size = filec
+		};
+		selected = list_menu_open(&menu_cfg);
 
-		scanKeys();
-		keys = keysDown();
-		if (keys & KEY_A) {
-			out = 1;
-			break;
-		} else if (keys & KEY_B) {
+		if (selected < 0) {
 			out = 0;
 			break;
-		} else if (keys & KEY_DOWN) {
-			draw_gui_tilemap(&listUnselected_map, 1, 0, 2 + 4 * selected);
-			selected++;
-			if (selected >= filec + 1) selected = 0;
-			update_savefile_preview(selected < filec ? files[selected] : -1);
-			draw_gui_tilemap(&listSelected_map, 1, 0, 2 + 4 * selected);
-		} else if (keys & KEY_UP) {
-			draw_gui_tilemap(&listUnselected_map, 1, 0, 2 + 4 * selected);
-			selected--;
-			if (selected < 0) selected = filec;
-			update_savefile_preview(selected < filec ? files[selected] : -1);
-			draw_gui_tilemap(&listSelected_map, 1, 0, 2 + 4 * selected);
 		}
-	}
 
-	memset(BG_MAP_RAM(BG_MAPBASE_BUTTONS), 0, 2048);
-	memset(BG_MAP_RAM_SUB(BG_MAPBASE_BUTTONS), 0, 2048);
-	if (out) {
-		if (selected >= filec) {
-			out = filePicker(sav_path, path_max);
+		if (menu_items[selected].extra == -1) {
+			strcpy(sav_path, "/");
+			out = file_picker(sav_path, path_max, FILE_FILTER_SAV, "Select a SAV file");
+			if (out)
+				break;
 		} else {
-			savefileLocationToPath(sav_path, rom_path, files[selected]);
+			savefileLocationToPath(sav_path, rom_path, menu_items[selected].extra);
+			out = 1;
+			break;
 		}
 	}
 	return out;

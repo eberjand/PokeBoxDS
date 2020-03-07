@@ -968,13 +968,6 @@ void open_boxes_gui() {
 	sysSetBusOwners(true, true);
 	swiDelay(10);
 
-	videoSetMode(MODE_0_2D);
-	videoSetModeSub(MODE_0_2D);
-
-	vramSetBankB(VRAM_B_MAIN_SPRITE);
-	vramSetBankC(VRAM_C_SUB_BG);
-	vramSetBankD(VRAM_D_SUB_SPRITE);
-
 	initConsoles();
 	clearConsoles();
 	set_message_screen(0);

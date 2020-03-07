@@ -1,6 +1,6 @@
 /*
  * This file is part of the PokeBoxDS project.
- * Copyright (C) 2019 Jennifer Berringer
+ * Copyright (C) 2020 Jennifer Berringer
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,13 +17,25 @@
  */
 #pragma once
 
-#include <stddef.h>
+#include <stdint.h>
 
-enum FilePickerFilter {
-	FILE_FILTER_ALL,
-	FILE_FILTER_ROM,
-	FILE_FILTER_SAV,
-	FILE_FILTER_MAX
+struct ListMenuItem {
+	const char *str;
+	int extra;
 };
 
-int file_picker(char *path, size_t path_max, int filter, const char *desc);
+struct ListMenuConfig {
+	const char *header1;
+	const char *header2;
+	const struct ListMenuItem *items;
+	int size;
+	int startIndex;
+	int (*hover_func)(const char *str, int extra);
+	/* icon_func should:
+	 * write 512 bytes (32x32 4bpp) to gfx_out
+	 * write 32 bytes (palette data) to pal_out
+	 */
+	int (*icon_func)(uint8_t *gfx_out, uint8_t *pal_out, int extra);
+};
+
+int list_menu_open(const struct ListMenuConfig *cfg);

@@ -21,11 +21,12 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#include "ConsoleMenu.h"
+//#include "ConsoleMenu.h"
 #include "asset_manager.h"
 #include "box_gui.h"
 #include "console_helper.h"
 #include "file_picker.h"
+#include "list_menu.h"
 #include "savedata_gen3.h"
 #include "savefile_picker.h"
 #include "util.h"
@@ -40,12 +41,12 @@ void openGameFromSD() {
 		if (romPath[0] == 0)
 			strcpy(romPath, "/");
 
-		if (!filePicker(romPath, sizeof(romPath)))
-			return;
+		if (!file_picker(romPath, sizeof(romPath), FILE_FILTER_ROM, "Select a ROM file"))
+			break;
 
 		selectBottomConsole();
 		if (!savefilePicker(savPath, romPath, sizeof(savPath)))
-			return;
+			break;
 
 		if (!assets_init_romfile(romPath))
 			assets_init_placeholder();
@@ -57,6 +58,7 @@ void openGameFromSD() {
 		}
 
 		open_boxes_gui();
+		break;
 	}
 }
 
@@ -87,7 +89,9 @@ int main(int argc, char **argv) {
 	videoSetMode(MODE_0_2D);
 	videoSetModeSub(MODE_0_2D);
 	vramSetBankA(VRAM_A_MAIN_BG);
+	vramSetBankD(VRAM_B_MAIN_SPRITE);
 	vramSetBankC(VRAM_C_SUB_BG);
+	vramSetBankD(VRAM_D_SUB_SPRITE);
 
 	initConsoles();
 	selectBottomConsole();
@@ -97,26 +101,30 @@ int main(int argc, char **argv) {
 		wait_for_button();
 	}
 
-	struct ConsoleMenuItem top_menu[] = {
-		{"Slot-2 GBA Cartridge", 0},
-		{"ROM/SAV file on SD card", 1}
+	struct ListMenuItem top_menu_items[] = {
+		{"Slot-2 GBA Cartridge"},
+		{"ROM/SAV file on SD card"}
+	};
+
+	struct ListMenuConfig top_menu_cfg = {
+		.header1 = "Load Pokémon save data from...",
+		.items = top_menu_items,
+		.size = ARRAY_LENGTH(top_menu_items)
 	};
 
 	for (;;) {
-		int extra = -1;
-		int selecting = 0;
+		int selecting;
 
-		selecting = console_menu_open("Load Pokemon save data from...", top_menu,
-			ARRAY_LENGTH(top_menu), NULL, &extra);
-		if (!selecting)
+		selecting = list_menu_open(&top_menu_cfg);
+		if (selecting < 0)
 			continue;
 
 		selectBottomConsole();
 		consoleClear();
 
-		if (extra == 0)
+		if (selecting == 0)
 			openGameFromCart();
-		else if (extra == 1)
+		else if (selecting == 1)
 			openGameFromSD();
 	}
 
