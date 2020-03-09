@@ -59,10 +59,11 @@ int pkmx_to_pkm(uint8_t *pkm, uint8_t *pkmx, int generation) {
 	return 1;
 }
 
-void pkmx_to_simplepkm(struct SimplePKM *pkm, const uint8_t *pkmx) {
+void pkmx_to_simplepkm(struct SimplePKM *pkm, const uint8_t *pkmx, int is_cart) {
 	uint8_t generation = pkmx[0];
 	memset(pkm, 0, sizeof(struct SimplePKM));
 
+	pkm->isOnCart = is_cart != 0;
 	pkm->curGameId = pkm->originGameId = GET16(pkmx, 0);
 	/* The other 2 bytes in PKMX are reserved for:
 	 *   originGen (keeping track of generation conversions)

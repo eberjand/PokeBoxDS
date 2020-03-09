@@ -84,7 +84,8 @@ struct SimplePKM {
 	uint8_t isBadEgg : 1;
 	uint8_t isOTFemale : 1;
 	uint8_t isShiny : 1;
-	uint8_t unusedFlags : 3;
+	uint8_t isOnCart : 1;
+	uint8_t unusedFlags : 2;
 	uint16_t heldItem;
 	const char *metLocation;
 	const char *ability;
@@ -100,4 +101,4 @@ struct SimplePKM {
 void pkm_to_pkmx(uint8_t *pkmx, const uint8_t *pkm, uint16_t gameId);
 int pkmx_convert_generation(uint8_t *pkmx, int generation);
 int pkmx_to_pkm(uint8_t *pkm, uint8_t *pkmx, int generation);
-void pkmx_to_simplepkm(struct SimplePKM *simple, const uint8_t *pkmx);
+void pkmx_to_simplepkm(struct SimplePKM *simple, const uint8_t *pkmx, int is_cart);

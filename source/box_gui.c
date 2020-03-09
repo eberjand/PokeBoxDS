@@ -50,13 +50,10 @@
 
 static int activeSprite = 0;
 
-// Each sprite is 2048 bytes
-// Need to allocate enough space for 4 sprites because of Castform
-static uint8_t frontSpriteData[8192];
-
 #define GUI_FLAG_SELECTING 0x01
 #define GUI_FLAG_HOLDING 0x02
 #define GUI_FLAG_HOLDING_MULTIPLE 0x04
+#define GUI_FLAG_HOVER_IS_CART 0x08
 
 //static const textLabel_t botLabelGroup = {1, 1, 1, 16};
 static const textLabel_t botLabelBox3  = {1, 5, 6, 12};
@@ -97,6 +94,14 @@ static const textLabel_t topLabelsSummary[] = {
 	{0, 20, 22, 12}
 };
 
+typedef union box_icon {
+	uint16_t value;
+	struct {
+		uint16_t species : 12;
+		uint16_t generation : 4;
+	};
+} box_icon_t;
+
 struct boxgui_groupView {
 	uint8_t groupIdx;
 	int8_t activeBox;
@@ -115,7 +120,7 @@ struct boxgui_groupView {
 	uint16_t **boxNames;
 	uint8_t *boxWallpapers;
 	uint8_t *boxData;
-	uint16_t *boxIcons;
+	box_icon_t *boxIcons;
 };
 
 struct boxgui_state {
@@ -133,9 +138,9 @@ struct boxgui_state {
 	int8_t holdingMax_x;
 	int8_t holdingMin_y;
 	int8_t holdingMax_y;
-	uint16_t boxIcons1[32 * 30];
-	uint16_t boxIcons2[32 * 30];
-	uint16_t holdIcons[30];
+	box_icon_t boxIcons1[32 * 30];
+	box_icon_t boxIcons2[32 * 30];
+	box_icon_t holdIcons[30];
 	uint8_t hoverPkm[PKMX_SIZE];
 	uint8_t boxData1[32 * BOX_SIZE_BYTES_X];
 	uint8_t boxData2[32 * BOX_SIZE_BYTES_X];
@@ -185,12 +190,13 @@ static void load_cart_sprite(uint8_t *gfx, uint8_t *pal, uint16_t gameId) {
 
 static void update_onescreen_summary(const struct SimplePKM *pkm) {
 	const textLabel_t *textLabels = topLabelsSummary;
-	uint8_t palette[32];
+	uint8_t palette[128];
 	static const char *stat_names[] = {"HP", "Atk", "Def", "SpAtk", "SpDef", "Speed"};
 	uint16_t genderStr[2] = {0, 0};
 	uint8_t genderColor = FONT_BLACK;
 	int stat_best = -1;
 	int stat_worst = -1;
+	const uint8_t *frontSpriteTiles;
 
 	if (!pkm || !pkm->exists) {
 		oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[0] = 0;
@@ -249,14 +255,15 @@ static void update_onescreen_summary(const struct SimplePKM *pkm) {
 			pkm->stats[i], pkm->EVs[i], (int) (pkm->IVs >> (i * 5)) & 31);
 	}
 
-	readFrontImage(frontSpriteData, palette, pkm->spriteIdx, pkm->isShiny);
+	frontSpriteTiles = readFrontImage(palette, pkm->spriteIdx, pkm->isShiny,
+		pkm->isOnCart ? 0 : pkm->curGameId);
 
-	memcpy((uint8_t*) SPRITE_PALETTE + 32 * (4 + 0), palette, 32);
+	memcpy((uint8_t*) SPRITE_PALETTE + 32 * (6 + 0), palette, 32);
 	memcpy((uint8_t*) SPRITE_GFX + OBJ_GFXIDX_BIGSPRITE * 128 + 0 * 2048,
-		frontSpriteData, 2048);
+		frontSpriteTiles, 2048);
 	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = OBJ_Y(4) | ATTR0_COLOR_16;
 	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = OBJ_X(188) | ATTR1_SIZE_64;
-	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].palette = 4 + 0;
+	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].palette = 6 + 0;
 	oamMain.oamMemory[OAM_INDEX_BIGSPRITE].gfxIndex = OBJ_GFXIDX_BIGSPRITE + 0 * 16;
 
 	load_cart_sprite(
@@ -278,9 +285,10 @@ static void update_onescreen_summary(const struct SimplePKM *pkm) {
 
 static void update_sidepane_summary(const struct SimplePKM *pkm) {
 	const textLabel_t *textLabels = botLabelsInfo;
-	uint8_t palette[32];
+	uint8_t palette[128];
 	uint16_t genderStr[2] = {0, 0};
 	uint8_t genderColor = FONT_BLACK;
+	const uint8_t *frontSpriteTiles;
 
 	if (!pkm || !pkm->exists) {
 		draw_gui_tilemap(&emptyStatusPane_map, 1, 21, 0);
@@ -308,22 +316,23 @@ static void update_sidepane_summary(const struct SimplePKM *pkm) {
 	drawTextFmt(&textLabels[3], FONT_BLACK, FONT_WHITE, "Lv %3d", pkm->level);
 	drawText16(&textLabels[4], genderColor, FONT_WHITE, genderStr);
 
-	readFrontImage(frontSpriteData, palette, pkm->spriteIdx, pkm->isShiny);
+	frontSpriteTiles = readFrontImage(palette, pkm->spriteIdx, pkm->isShiny,
+		pkm->isOnCart ? 0 : pkm->curGameId);
 
-	memcpy((uint8_t*) SPRITE_PALETTE_SUB + 32 * (4 + activeSprite), palette, 32);
+	memcpy((uint8_t*) SPRITE_PALETTE_SUB + 32 * (6 + activeSprite), palette, 32);
 	memcpy((uint8_t*) SPRITE_GFX_SUB + OBJ_GFXIDX_BIGSPRITE * 128 + activeSprite * 2048,
-		frontSpriteData, 2048);
+		frontSpriteTiles, 2048);
 	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = OBJ_Y(36) | ATTR0_COLOR_16;
 	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = OBJ_X(180) | ATTR1_SIZE_64;
-	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].palette = 4 + activeSprite;
+	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].palette = 6 + activeSprite;
 	oamSub.oamMemory[OAM_INDEX_BIGSPRITE].gfxIndex = OBJ_GFXIDX_BIGSPRITE + activeSprite * 16;
 	activeSprite ^= 1;
 }
 
-static void status_display_update(const uint8_t *pkmx) {
+static void status_display_update(const uint8_t *pkmx, int is_cart) {
 	struct SimplePKM pkm;
 
-	pkmx_to_simplepkm(&pkm, pkmx);
+	pkmx_to_simplepkm(&pkm, pkmx, is_cart);
 	update_onescreen_summary(&pkm);
 	update_sidepane_summary(&pkm);
 }
@@ -338,15 +347,15 @@ static void load_cursor() {
 }
 
 static int display_icon_sprites(
-	const uint16_t *speciesList, int oamIndex, int gfxIndex, int x, int y) {
+	const box_icon_t *iconList, int oamIndex, int gfxIndex, int x, int y) {
 
 	int obj_idx = 0;
 
 	for (int i = 0; i < 30; i++) {
-		uint16_t species = speciesList[i];
+		box_icon_t icon = iconList[i];
 		SpriteEntry *oam = &oamSub.oamMemory[oamIndex + i];
 
-		if (species == 0) {
+		if (icon.species == 0) {
 			oam->attribute[0] = 0;
 			oam->attribute[1] = 0;
 			oam->attribute[2] = 0;
@@ -355,12 +364,12 @@ static int display_icon_sprites(
 
 		oam->attribute[0] = OBJ_Y((i / 6) * 24 + y) | ATTR0_COLOR_16;
 		oam->attribute[1] = OBJ_X((i % 6) * 24 + x) | ATTR1_SIZE_32;
-		oam->palette = getIconPaletteIdx(species);
+		oam->palette = getIconPaletteIdx(icon.value);
 		oam->gfxIndex = gfxIndex + i * 8;
 		// Each 32x32@4bpp sprite is 512 bytes.
 		// 2 animation frames at 512 bytes each = 1024 bytes per Pokemon.
 		dmaCopy(
-			getIconImage(species),
+			getIconImage(icon.value),
 			(uint8_t*) SPRITE_GFX_SUB + gfxIndex * 128 + i * 1024,
 			1024);
 
@@ -400,7 +409,7 @@ static void clear_selection_shadow() {
 
 static void decode_boxes(struct boxgui_groupView *group) {
 	uint16_t checksum;
-	uint16_t species;
+	box_icon_t icon;
 	pkm3_t pkm;
 	for (int pkmIdx = 0; pkmIdx < 30 * group->numBoxes; pkmIdx++) {
 		const uint8_t *bytes;
@@ -412,21 +421,24 @@ static void decode_boxes(struct boxgui_groupView *group) {
 			bytes += 4;
 			if (generation == 0) {
 				// Blank space
-				group->boxIcons[pkmIdx] = 0;
+				group->boxIcons[pkmIdx].value = 0;
 				continue;
 			}
 		}
 		if (generation != 3) {
 			// Question mark for other generations we can't decode yet
-			group->boxIcons[pkmIdx] = 252;
+			icon.species = 252;
+			icon.generation = 3;
+			group->boxIcons[pkmIdx] = icon;
 			continue;
 		}
 		checksum = decode_pkm_encrypted_data(&pkm, bytes);
 		if (checksum != pkm.checksum)
-			species = 412; // Egg icon for Bad EGG
+			icon.species = 412; // Egg icon for Bad EGG
 		else
-			species = pkm_displayed_species(&pkm);
-		group->boxIcons[pkmIdx] = species;
+			icon.species = pkm_displayed_species(&pkm);
+		icon.generation = group->gameId ? 0 : 3;
+		group->boxIcons[pkmIdx] = icon;
 	}
 }
 
@@ -451,14 +463,19 @@ static void update_cursor(struct boxgui_state *guistate) {
 
 	if (guistate->flags & GUI_FLAG_HOLDING) {
 		move_icon_sprites(OAM_INDEX_HOLDING, icons_x, icons_y);
-		status_display_update(guistate->hoverPkm);
+		status_display_update(guistate->hoverPkm,
+			(guistate->flags & GUI_FLAG_HOVER_IS_CART) != 0);
 	} else {
 		pkm_to_pkmx(guistate->hoverPkm,
 			guistate->botScreen.boxData +
 			guistate->botScreen.activeBox * guistate->botScreen.boxSizeBytes +
 			cur_poke * guistate->botScreen.pkmSize,
 			guistate->botScreen.gameId);
-		status_display_update(guistate->hoverPkm);
+		guistate->flags &= ~GUI_FLAG_HOVER_IS_CART;
+		if (guistate->botScreen.gameId)
+			guistate->flags |= GUI_FLAG_HOVER_IS_CART;
+		status_display_update(guistate->hoverPkm,
+			(guistate->flags & GUI_FLAG_HOVER_IS_CART) != 0);
 	}
 	clear_selection_shadow();
 	if (guistate->flags & (GUI_FLAG_SELECTING | GUI_FLAG_HOLDING)) {
@@ -709,11 +726,13 @@ static void pickup_selection(struct boxgui_state *guistate) {
 	int dy = guistate->holdingMin_y;
 	int icons_x, icons_y;
 	struct boxgui_groupView *group = &guistate->botScreen;
-	uint16_t *curBoxIcons = group->boxIcons + 30 * group->activeBox;
+	box_icon_t *curBoxIcons = group->boxIcons + 30 * group->activeBox;
 	int isPopulated = 0;
 
 	if (width * height > 1)
 		flags |= GUI_FLAG_HOLDING_MULTIPLE;
+	flags |= guistate->flags &
+		~(GUI_FLAG_SELECTING | GUI_FLAG_HOLDING | GUI_FLAG_HOLDING_MULTIPLE);
 	guistate->flags = flags;
 	guistate->holdingSourceBox = group->activeBox;
 	guistate->holdingSourceGroup = group->groupIdx;
@@ -721,10 +740,10 @@ static void pickup_selection(struct boxgui_state *guistate) {
 	guistate->holdingSource_y = guistate->holdingMin_y;
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
-			uint16_t tmp;
+			box_icon_t tmp;
 			tmp = guistate->holdIcons[y * 6 + x] = curBoxIcons[(y + dy) * 6 + (x + dx)];
-			curBoxIcons[(y + dy) * 6 + (x + dx)] = 0;
-			if (tmp)
+			curBoxIcons[(y + dy) * 6 + (x + dx)].species = 0;
+			if (tmp.species)
 				isPopulated = 1;
 		}
 	}
@@ -756,7 +775,7 @@ static void drop_holding(struct boxgui_state *guistate) {
 	int sy = guistate->holdingSource_y;
 	struct boxgui_groupView *group = &guistate->botScreen;
 	struct boxgui_groupView *srcGroup = group;
-	uint16_t *srcBoxIcons;
+	box_icon_t *srcBoxIcons;
 
 	if (group->groupIdx != guistate->holdingSourceGroup)
 		srcGroup = &guistate->topScreen;
@@ -765,7 +784,7 @@ static void drop_holding(struct boxgui_state *guistate) {
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
 			srcBoxIcons[(y + sy) * 6 + (x + sx)] = guistate->holdIcons[y * 6 + x];
-			guistate->holdIcons[y * 6 + x] = 0;
+			guistate->holdIcons[y * 6 + x].value = 0;
 		}
 	}
 
@@ -788,7 +807,7 @@ static void store_holding(struct boxgui_state *guistate) {
 	int sy = guistate->holdingSource_y;
 	int x_start, x_iter, x_end, y_start, y_iter, y_end;
 	struct boxgui_groupView *srcGroup, *dstGroup;
-	uint16_t *dstBoxIcons, *srcBoxIcons;
+	box_icon_t *dstBoxIcons, *srcBoxIcons;
 	uint8_t *dstBoxData, *srcBoxData;
 
 	dstGroup = &guistate->botScreen;
@@ -806,7 +825,7 @@ static void store_holding(struct boxgui_state *guistate) {
 		// Do nothing if any spot in the destination is occupied.
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
-				if (dstBoxIcons[(y + dy) * 6 + (x + dx)] && guistate->holdIcons[y * 6 + x])
+				if (dstBoxIcons[(y + dy) * 6 + (x + dx)].species && guistate->holdIcons[y * 6 + x].species)
 					return;
 			}
 		}
@@ -841,7 +860,7 @@ static void store_holding(struct boxgui_state *guistate) {
 			uint8_t tmpPkm2[PKMX_SIZE];
 			int srcIdx, dstIdx;
 
-			if (guistate->holdIcons[y * 6 + x] == 0)
+			if (guistate->holdIcons[y * 6 + x].species == 0)
 				continue;
 
 			srcIdx = (y + sy) * 6 + (x + sx);
@@ -852,6 +871,10 @@ static void store_holding(struct boxgui_state *guistate) {
 
 			srcBoxIcons[srcIdx] = dstBoxIcons[dstIdx];
 			dstBoxIcons[dstIdx] = guistate->holdIcons[y * 6 + x];
+			if (srcBoxIcons[srcIdx].species) {
+				srcBoxIcons[srcIdx].generation = srcGroup->gameId ? 0 : 3;
+			}
+			dstBoxIcons[dstIdx].generation = dstGroup->gameId ? 0 : 3;
 
 			pkm_to_pkmx(tmpPkm1, srcPkm, srcGroup->gameId);
 			pkm_to_pkmx(tmpPkm2, dstPkm, dstGroup->gameId);
@@ -868,7 +891,7 @@ static void store_holding(struct boxgui_state *guistate) {
 			pkmx_to_pkm(srcPkm, tmpPkm2, srcGroup->generation);
 
 			// Clear this Pokemon from the holding list
-			guistate->holdIcons[y * 6 + x] = 0;
+			guistate->holdIcons[y * 6 + x].value = 0;
 			SpriteEntry *oam = &oamSub.oamMemory[OAM_INDEX_HOLDING + y * 6 + x];
 			oam->attribute[0] = 0;
 			oam->attribute[1] = 0;
@@ -878,7 +901,7 @@ static void store_holding(struct boxgui_state *guistate) {
 
 	int isStillHolding = 0;
 	for (int i = 0; i < 30; i++) {
-		if (guistate->holdIcons[i]) {
+		if (guistate->holdIcons[i].species) {
 			isStillHolding = 1;
 			break;
 		}
@@ -1014,8 +1037,8 @@ void open_boxes_gui() {
 	oamInit(&oamSub, SpriteMapping_1D_128, false);
 
 	// Load all Pokemon box icon palettes into VRAM
-	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE, 32 * 3);
-	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE_SUB, 32 * 3);
+	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE, 32 * 6);
+	dmaCopy(getIconPaletteColors(0), (uint8_t*) SPRITE_PALETTE_SUB, 32 * 6);
 
 	// Initial display
 	load_cursor();

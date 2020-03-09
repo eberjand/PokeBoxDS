@@ -29,6 +29,12 @@ extern int activeGameLanguage;
 extern uint8_t activeGameGen;
 extern uint8_t activeGameSubGen;
 
+#define GAMEID_RUBY 0
+#define GAMEID_SAPPHIRE 1
+#define GAMEID_FIRERED 2
+#define GAMEID_LEAFGREEN 3
+#define GAMEID_EMERALD 4
+
 #define IS_RUBY_SAPPHIRE (activeGameId == 0 || activeGameId == 1)
 #define IS_FIRERED_LEAFGREEN (activeGameId == 2 || activeGameId == 3)
 #define IS_EMERALD (activeGameId == 4)
@@ -39,7 +45,10 @@ struct BaseStatEntryGen3 {
 	uint8_t catchRate;
 	uint8_t expYield;
 	uint16_t evYield;
-	uint16_t heldItem[2];
+	union {
+		uint16_t heldItem[2];
+		uint32_t heldItems;
+	};
 	uint8_t genderRatio;
 	uint8_t eggCycles;
 	uint8_t baseFriendship;
@@ -51,10 +60,12 @@ struct BaseStatEntryGen3 {
 	uint8_t padding[2];
 };
 
+void assets_init();
 void assets_init_placeholder();
 _Bool assets_init_cart();
 _Bool assets_init_romfile(const char *file);
 void assets_free();
+int dump_assets_to_sd(_Bool force);
 
 int read_romfile_gameid(const char *file);
 
@@ -62,6 +73,6 @@ uint8_t getIconPaletteIdx(uint16_t species);
 // Returned pointer is only valid until the next call of either function
 const uint16_t* getIconImage(uint16_t species);
 const uint16_t* getIconPaletteColors(int index);
-void readFrontImage(uint8_t *tiles_out, uint8_t *palette_out, uint16_t species, int shiny);
+const uint8_t* readFrontImage(uint8_t *palette_out, uint16_t species, _Bool shiny, uint16_t gameid);
 int loadWallpaper(int index);
-const struct BaseStatEntryGen3* getBaseStatEntry(uint16_t species);
+const struct BaseStatEntryGen3* getBaseStatEntry(uint16_t species, uint16_t gameid);

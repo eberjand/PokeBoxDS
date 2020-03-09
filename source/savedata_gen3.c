@@ -552,8 +552,6 @@ void pkm3_to_simplepkm(struct SimplePKM *simple, const uint8_t *src) {
 	if (pkm.species == 0)
 		return;
 
-	baseStats = getBaseStatEntry(pkm.species);
-
 	decode_gen3_string16(simple->nickname, pkm.nickname, 10, pkm.language);
 	decode_gen3_string16(simple->trainerName, pkm.trainerName, 7, pkm.language);
 
@@ -572,6 +570,8 @@ void pkm3_to_simplepkm(struct SimplePKM *simple, const uint8_t *src) {
 	simple->IVs = pkm.IVs;
 	simple->metLocation = get_location_name(pkm.met_location, pkm.origins >> 7 & 0xF);
 	simple->trainerId = pkm.trainerId;
+
+	baseStats = getBaseStatEntry(pkm.species, simple->isOnCart ? 0 : simple->curGameId);
 
 	if (pkm.language >= 0x201 && pkm.language <= 0x207 && pkm.language != 0x206)
 		simple->language = pkm.language & ~0x200;

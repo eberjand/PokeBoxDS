@@ -101,6 +101,8 @@ int main(int argc, char **argv) {
 		wait_for_button();
 	}
 
+	assets_init();
+
 	struct ListMenuItem top_menu_items[] = {
 		{"Slot-2 GBA Cartridge"},
 		{"ROM/SAV file on SD card"}

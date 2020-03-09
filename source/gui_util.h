@@ -68,8 +68,9 @@
  * 18000-1FFFF Pokemon in next box
  *
  * OBJ palettes for each screen: (each palette is 32 bytes)
- * 000-05F (00-02) Box icon sprites (only 3 palettes are needed total for every species)
- * 080-0BF (04-05) Large front sprite (double buffered)
+ * 000-05F (00-02) Box icon sprites (SD dumps)
+ * 060-0BF (03-05) Box icon sprites (Cartridge)
+ * 0C0-0FF (06-07) Large front sprite (double buffered)
  * 100-11F (08)    Cursor
  * 120-13F (09)    Cartridge icon
  * 140-1FF (10-15) unused
