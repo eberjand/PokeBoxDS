@@ -51,7 +51,9 @@
  * 020-07F (01-03) unused
  * 080-0FF (04-07) Current box wallpaper
  * 100-11F (08)    UI overlays
- * 120-1FF (09-15) unused
+ * 120-13F (09)    Cartridge icon
+ * 140-17F (10-11) Item icons
+ * 180-1FF (12-15) unused
  *
  * OAM entries for each screen: (limit 0x80)
  * 00    Cursor

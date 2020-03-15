@@ -15,8 +15,12 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+#pragma once
+
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdint.h>
+
 #include "languages.h"
 
 extern uint8_t wallpaperTiles[0x1000];
@@ -74,5 +78,6 @@ uint8_t getIconPaletteIdx(uint16_t species);
 const uint16_t* getIconImage(uint16_t species);
 const uint16_t* getIconPaletteColors(int index);
 const uint8_t* readFrontImage(uint8_t *palette_out, uint16_t species, _Bool shiny, uint16_t gameid);
+bool loadItemIcon(uint8_t *tiles_out, uint8_t *palette_out, uint16_t item_idx);
 int loadWallpaper(int index);
 const struct BaseStatEntryGen3* getBaseStatEntry(uint16_t species, uint16_t gameid);

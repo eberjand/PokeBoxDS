@@ -202,6 +202,12 @@ static void update_onescreen_summary(const struct SimplePKM *pkm) {
 		oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[0] = 0;
 		oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[1] = 0;
 		oamMain.oamMemory[OAM_INDEX_CURBOX].attribute[2] = 0;
+		oamMain.oamMemory[OAM_INDEX_CURBOX+1].attribute[0] = 0;
+		oamMain.oamMemory[OAM_INDEX_CURBOX+1].attribute[1] = 0;
+		oamMain.oamMemory[OAM_INDEX_CURBOX+1].attribute[2] = 0;
+		oamMain.oamMemory[OAM_INDEX_CURBOX+2].attribute[0] = 0;
+		oamMain.oamMemory[OAM_INDEX_CURBOX+2].attribute[1] = 0;
+		oamMain.oamMemory[OAM_INDEX_CURBOX+2].attribute[2] = 0;
 		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[0] = 0;
 		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[1] = 0;
 		oamMain.oamMemory[OAM_INDEX_BIGSPRITE].attribute[2] = 0;
@@ -275,12 +281,23 @@ static void update_onescreen_summary(const struct SimplePKM *pkm) {
 	oamMain.oamMemory[OAM_INDEX_CURBOX].palette = 9;
 	oamMain.oamMemory[OAM_INDEX_CURBOX].gfxIndex = OBJ_GFXIDX_CURBOX;
 
-	/* TODO: Add a row of icons at Y=16
-	 * X=00 Cartridge icon for origin game
-	 * X=32 Ball
-	 * X=64 Held item
-	 * X=96 Box icon
-	 */
+	/* Containing Pokeball sprite */
+	loadItemIcon((uint8_t*) SPRITE_GFX + OBJ_GFXIDX_CURBOX * 128 + 512,
+		(uint8_t*) SPRITE_PALETTE + 32 * 10, pkm->pokeball);
+	oamMain.oamMemory[OAM_INDEX_CURBOX+1].attribute[0] = OBJ_Y(16) | ATTR0_COLOR_16;
+	oamMain.oamMemory[OAM_INDEX_CURBOX+1].attribute[1] = OBJ_X(36) | ATTR1_SIZE_32;
+	oamMain.oamMemory[OAM_INDEX_CURBOX+1].palette = 10;
+	oamMain.oamMemory[OAM_INDEX_CURBOX+1].gfxIndex = OBJ_GFXIDX_CURBOX + 4;
+
+	/* Held item sprite */
+	bool has_item;
+	has_item = loadItemIcon((uint8_t*) SPRITE_GFX + OBJ_GFXIDX_CURBOX * 128 + 1024,
+		(uint8_t*) SPRITE_PALETTE + 32 * 11, pkm->heldItem);
+	oamMain.oamMemory[OAM_INDEX_CURBOX+2].attribute[0] = OBJ_Y(16) | ATTR0_COLOR_16 |
+		(has_item ? 0 : ATTR0_DISABLED);
+	oamMain.oamMemory[OAM_INDEX_CURBOX+2].attribute[1] = OBJ_X(68) | ATTR1_SIZE_32;
+	oamMain.oamMemory[OAM_INDEX_CURBOX+2].palette = 11;
+	oamMain.oamMemory[OAM_INDEX_CURBOX+2].gfxIndex = OBJ_GFXIDX_CURBOX + 8;
 }
 
 static void update_sidepane_summary(const struct SimplePKM *pkm) {

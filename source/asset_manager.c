@@ -574,6 +574,36 @@ const uint16_t* getIconPaletteColors(int index) {
 	return unknownIconPal;
 }
 
+bool loadItemIcon(uint8_t *tiles_out, uint8_t *palette_out, uint16_t item_idx) {
+	uint32_t offset;
+	union dump_entry_meta meta;
+
+	if (!item_idx || item_idx > 376)
+		return false;
+	if (!handler.itemIconFile)
+		return false;
+
+	fseek(handler.itemIconFile, sizeof(struct dump_file_header) + 4 * item_idx, SEEK_SET);
+	fread(&offset, sizeof(offset), 1, handler.itemIconFile);
+	fseek(handler.itemIconFile, offset, SEEK_SET);
+	fread(&meta, sizeof(meta), 1, handler.itemIconFile);
+	if (meta.num_pals > 1) {
+		fseek(handler.itemIconFile, gen3_tmhm_type(item_idx) * 32, SEEK_CUR);
+		fread(palette_out, 2, 16, handler.itemIconFile);
+		fseek(handler.itemIconFile, offset + sizeof(meta) + 32 * meta.num_pals, SEEK_SET);
+	} else {
+		fread(palette_out, 2, 16, handler.itemIconFile);
+	}
+	// Expand the sprite from 24x24 to 32x32
+	fread(tiles_out        , 1, 0x60, handler.itemIconFile);
+	memset(tiles_out + 0x60, 0, 0x20);
+	fread(tiles_out +  0x80, 1, 0x60, handler.itemIconFile);
+	memset(tiles_out + 0xE0, 0, 0x20);
+	fread(tiles_out + 0x100, 1, 0x60, handler.itemIconFile);
+	memset(tiles_out + 0x160, 0, 0xA0);
+	return true;
+}
+
 int loadWallpaper(int index) {
 	uint32_t tiles, tilemap, pal;
 	if (handler.assetSource == ASSET_SOURCE_NONE)
