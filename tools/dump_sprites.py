@@ -28,6 +28,8 @@ def write_4bpp_png(path, tiledata, palette):
         tile_width = 8
     elif num_tiles >= 16:
         tile_width = 4
+    elif num_tiles >= 9:
+        tile_width = 3
     elif num_tiles >= 4:
         tile_width = 2
     elif num_tiles >= 1:
@@ -145,9 +147,12 @@ class DumpReader:
 
     def next_sprite(self):
         self.sprite_idx = next(self.item_iterator)
+        prev_idx = self.sprite_idx - 1
         fp = self.fp
 
         if self.offsets:
+            while self.offsets[self.sprite_idx] == self.offsets[prev_idx]:
+                self.sprite_idx = next(self.item_iterator)
             fp.seek(self.offsets[self.sprite_idx])
 
         size = self.item_size

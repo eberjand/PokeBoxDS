@@ -30,3 +30,4 @@ const char* get_type_name(unsigned index);
 const char* get_egg_group_name(unsigned index);
 const char* get_nature_name(unsigned index);
 const char* get_ability_name(unsigned index);
+uint8_t gen3_tmhm_type(unsigned item_index);
