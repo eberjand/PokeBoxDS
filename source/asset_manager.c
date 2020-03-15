@@ -24,6 +24,7 @@
 #include <sys/stat.h>
 #include <nds.h>
 
+#include "lz77.h"
 #include "message_window.h"
 #include "pokemon_strings.h"
 #include "util.h"
@@ -598,19 +599,19 @@ int loadWallpaper(int index) {
 		// Read the compressed tile data
 		fseek(handler.fp, tiles & ROM_OFFSET_MASK, SEEK_SET);
 		fread(tileGfxCompressed, 1, sizeof(tileGfxCompressed), handler.fp);
-		swiDecompressLZSSWram(tileGfxCompressed, wallpaperTiles);
+		lz77_extract(wallpaperTiles, tileGfxCompressed, sizeof(wallpaperTiles));
 
 		// Read the compressed tile map data
 		fseek(handler.fp, tilemap & ROM_OFFSET_MASK, SEEK_SET);
 		fread(tileGfxCompressed, 1, sizeof(tileGfxCompressed), handler.fp);
-		swiDecompressLZSSWram(tileGfxCompressed, wallpaperTilemap);
+		lz77_extract(wallpaperTilemap, tileGfxCompressed, sizeof(wallpaperTilemap));
 
 		// Read the palette data
 		fseek(handler.fp, pal & ROM_OFFSET_MASK, SEEK_SET);
 		fread(wallpaperPal, 1, sizeof(wallpaperPal), handler.fp);
 	} else {
-		swiDecompressLZSSWram((void*) tiles, wallpaperTiles);
-		swiDecompressLZSSWram((void*) tilemap, wallpaperTilemap);
+		lz77_extract(wallpaperTiles, (void*) tiles, sizeof(wallpaperTiles));
+		lz77_extract(wallpaperTilemap, (void*) tilemap, sizeof(wallpaperTilemap));
 		memcpy(wallpaperPal, (void*) pal, sizeof(wallpaperPal));
 	}
 	return 1;
@@ -679,7 +680,7 @@ static void dumpItemIconsRange(FILE *fout, uint16_t idx_start, uint16_t idx_end,
 			if ((tmhm_types >> cur_type & 1) != 0 && can_skip)
 				continue;
 
-			swiDecompressLZSSWram(palAddress, tmhmPalettes + 16 * cur_type);
+			lz77_extract(tmhmPalettes + 16 * cur_type, palAddress, 32);
 			tmhm_types |= 1 << cur_type;
 			if (can_skip) {
 				continue;
@@ -693,14 +694,10 @@ static void dumpItemIconsRange(FILE *fout, uint16_t idx_start, uint16_t idx_end,
 
 		offsetTable[idx] = cur_offset;
 
-		if ((GET32(palAddress, 0) >> 8) <= sizeof(palette)) {
-			swiDecompressLZSSWram(palAddress, palette);
-		} else {
+		if (!lz77_extract(palette, palAddress, sizeof(palette))) {
 			memset(palette, 0, sizeof(palette));
 		}
-		if ((GET32(tileAddress, 0) >> 8) <= sizeof(tileGfxUncompressed)) {
-			swiDecompressLZSSWram(tileAddress, tileGfxUncompressed);
-		} else {
+		if (!lz77_extract(tileGfxUncompressed, tileAddress, sizeof(tileGfxUncompressed))) {
 			memset(tileGfxUncompressed, 0, sizeof(tileGfxUncompressed));
 		}
 
@@ -766,6 +763,7 @@ void* readCompressedFrontImage(uint16_t species, void **prev) {
 int readFrontPalette(uint8_t *palette_out, uint16_t species, bool shiny) {
 	uint16_t **paletteTable = (shiny) ? handler.shinyPaletteTable : handler.frontPaletteTable;
 	void *palAddress = NULL;
+	uint32_t outlen;
 	u8 palCompressed[128];
 
 	if (handler.assetSource == ASSET_SOURCE_CART) {
@@ -781,13 +779,12 @@ int readFrontPalette(uint8_t *palette_out, uint16_t species, bool shiny) {
 		palAddress = palCompressed;
 	}
 
-	// Avoid buffer overflows by checking the extracted size
-	if (palAddress == NULL || (GET32(palAddress, 0) >> 8) > 128)
+	outlen = lz77_extract(palette_out, palAddress, 128);
+	if (!outlen)
 		return 0;
-	swiDecompressLZSSWram(palAddress, palette_out);
 
 	// Return the number of distinct 32-byte palettes
-	return (GET32(palAddress, 0) >> 8) / 32;
+	return outlen / 32;
 }
 
 const uint8_t* readFrontImage(uint8_t *palette_out, uint16_t species,
@@ -822,13 +819,11 @@ const uint8_t* readFrontImage(uint8_t *palette_out, uint16_t species,
 
 		if (meta.is_compressed) {
 			fread(tileGfxCompressed, 1, MIN(meta.size, sizeof(tileGfxCompressed)), fp);
-
-			// Avoid buffer overflows by checking the extracted size
-			if ((GET32(tileGfxCompressed, 0) >> 8) > sizeof(tileGfxUncompressed)) {
+			if (!lz77_extract(tileGfxUncompressed, tileGfxCompressed,
+				sizeof(tileGfxUncompressed))) {
 				memcpy(palette_out, unknownFrontPal, 32);
 				return (const uint8_t*) unknownFrontTiles;
 			}
-			swiDecompressLZSSWram(tileGfxCompressed, tileGfxUncompressed);
 		} else {
 			fread(tileGfxUncompressed, 1, MIN(meta.size, sizeof(tileGfxUncompressed)), fp);
 		}
@@ -838,14 +833,13 @@ const uint8_t* readFrontImage(uint8_t *palette_out, uint16_t species,
 	pal_res = readFrontPalette(palette_out, species, shiny);
 	tileAddress = readCompressedFrontImage(species, NULL);
 
-	if (!pal_res || tileAddress == NULL ||
-		(GET32(tileAddress, 0) >> 8) > sizeof(tileGfxUncompressed)) {
-		memcpy(palette_out, unknownFrontPal, 32);
-		tileAddress = unknownFrontTiles;
+	if (pal_res && lz77_extract(tileGfxUncompressed, tileAddress,
+		sizeof(tileGfxUncompressed))) {
+		tileAddress = tileGfxUncompressed;
 	}
 	else {
-		swiDecompressLZSSWram((void*) tileAddress, tileGfxUncompressed);
-		tileAddress = tileGfxUncompressed;
+		memcpy(palette_out, unknownFrontPal, 32);
+		tileAddress = unknownFrontTiles;
 	}
 	return tileAddress;
 }
@@ -874,120 +868,6 @@ const struct BaseStatEntryGen3* getBaseStatEntry(uint16_t species, uint16_t game
 		fread(&statEntry.entry, sizeof(statEntry.entry), 1, handler.fp);
 		return &statEntry.entry;
 	}
-}
-
-// Get the compressed size of an lz77 data stream
-static uint32_t lz77_size(uint8_t *data, uint32_t max) {
-	uint32_t dec = 0;
-	uint32_t dec_limit = 0;
-	uint32_t size = 0;
-
-	dec_limit = GET32(data, 0) >> 8;
-	size += 4;
-
-	while (size < max && dec < dec_limit) {
-		uint8_t flags;
-		flags = data[size];
-		size++;
-		for (int i = 0; i < 8; i++, flags <<= 1) {
-			if (size >= max || dec >= dec_limit)
-				break;
-
-			if ((flags & 0x80) == 0) {
-				// One byte is copied from input to output when decompressing.
-				dec++;
-				size++;
-			} else {
-				// 3-18 bytes are copied from existing output to current position.
-				// The location and size of this copy is denoted by 2 bytes of input.
-				uint16_t meta;
-				meta = data[size] | (uint16_t) data[size+1] << 8;
-				dec += ((meta >> 4) & 0xF) + 3;
-				size += 2;
-			}
-		}
-	}
-
-	// Align the size up to 4 bytes
-	size = (size + 3) & ~3;
-	if (size > max)
-		size = max;
-
-	return size;
-}
-
-static uint32_t lz77_truncate(uint8_t *data, uint32_t max_in, uint32_t max_out) {
-	uint32_t dec = 0;
-	uint32_t dec_limit = 0;
-	uint32_t size = 0;
-	uint32_t last_flags = 0;
-
-	dec_limit = GET32(data, 0) >> 8;
-	dec_limit = MIN(dec_limit, max_out);
-	SET32(data, 0) = dec_limit << 8 | data[0];
-	size += 4;
-
-	while (size < max_in && dec < dec_limit) {
-		uint8_t flags;
-		flags = data[size];
-		last_flags = size;
-		size++;
-		for (int i = 0; i < 8; i++, flags <<= 1) {
-			if (size >= max_in || dec >= dec_limit) {
-				if (flags) {
-					data[last_flags] &= 0xFF00 >> i;
-				}
-				break;
-			}
-
-			if ((flags & 0x80) == 0) {
-				// One byte is copied from input to output when decompressing.
-				dec++;
-				size++;
-			} else if (dec + 3 > dec_limit) {
-				/* Any back-reference copy will pass the limit and we need to
-				 * change it to one or two single-byte copies.
-				 *
-				 * If it's just one byte, that's simple: change the current flag
-				 * to copy a single byte and assume that byte is zero.
-				 *
-				 * If it's two bytes, change both the current and next flag to
-				 * copy a single byte and assume those bytes are zero. Touching
-				 * the next flag means we might need to add another flags byte
-				 * depending on the current flag position.
-				 */
-				data[last_flags] &= 0xFF00 >> i;
-				data[size] = 0;
-				data[size + 1] = 0;
-				size += dec_limit - dec;
-				if (dec + 2 == dec_limit && i == 7 && size < max_in) {
-					data[size] = 0;
-					size++;
-				}
-				dec = dec_limit;
-				break;
-			} else {
-				// 3-18 bytes are copied from existing output to current position.
-				// The location and size of this copy is denoted by 2 bytes of input.
-				uint8_t meta;
-				meta = data[size];
-				dec += (meta >> 4) + 3;
-				size += 2;
-				if (dec > dec_limit) {
-					meta = ((meta >> 4) - (dec - dec_limit)) << 4 | (meta & 0xF);
-					dec = dec_limit;
-				}
-			}
-		}
-	}
-
-	// Align the size up to 4 bytes
-	while ((size & 3) != 0 && size < max_in) {
-		data[size++] = 0;
-	}
-	if (size > max_in)
-		size = max_in;
-	return size;
 }
 
 /* Generally, there are two sets of large sprites: one for Ruby/Sapphire/Emerald
@@ -1033,9 +913,7 @@ static bool write_frlg_deoxys_sprite(FILE *fp) {
 
 	tileAddress = readCompressedFrontImage(SPECIES_DEOXYS, NULL);
 	memset(tileGfxUncompressed, 0, sizeof(tileGfxUncompressed));
-	if ((GET32(tileAddress, 0) >> 8) <= sizeof(tileGfxUncompressed)) {
-		swiDecompressLZSSWram(tileAddress, tileGfxUncompressed);
-	}
+	lz77_extract(tileGfxUncompressed, tileAddress, sizeof(tileGfxUncompressed));
 	fwrite(tileGfxUncompressed + 2048, 1, 2048, fp);
 
 	return true;
@@ -1057,7 +935,7 @@ static uint32_t write_one_frontsprite(FILE *fp, int species, void **prevTiles) {
 
 	num_pals = (uint8_t) readFrontPalette(palette, species, 0);
 	num_pals += (uint8_t) readFrontPalette(palette + num_pals * 32, species, 1);
-	size = lz77_size(tileAddress, sizeof(tileGfxCompressed));
+	size = lz77_compressed_size(tileAddress, sizeof(tileGfxCompressed));
 
 	meta.size = size;
 	meta.num_pals = num_pals;
@@ -1068,9 +946,7 @@ static uint32_t write_one_frontsprite(FILE *fp, int species, void **prevTiles) {
 		meta.is_compressed = 0;
 		meta.size = size = 2048 * 3;
 		memset(tileGfxUncompressed, 0, sizeof(tileGfxUncompressed));
-		if ((GET32(tileAddress, 0) >> 8) <= sizeof(tileGfxUncompressed)) {
-			swiDecompressLZSSWram(tileAddress, tileGfxUncompressed);
-		}
+		lz77_extract(tileGfxUncompressed, tileAddress, sizeof(tileGfxUncompressed));
 		if (activeGameId == GAMEID_LEAFGREEN) {
 			// Move Deoxys-Defense form from the second to third sprite
 			memcpy(tileGfxUncompressed + 4096, tileGfxUncompressed + 2048, 2048);
@@ -1084,13 +960,12 @@ static uint32_t write_one_frontsprite(FILE *fp, int species, void **prevTiles) {
 		 * single 64x64 sprite, so we truncate it. Affected species include:
 		 * Blaziken, Marshtomp, Poochyena, Walrein, Swablu, and Rayquaza
 		 */
-		if ((GET32(tileAddress, 0) >> 8) > 2048 && species != SPECIES_CASTFORM) {
+		if (lz77_extracted_size(tileAddress) > 2048 && species != SPECIES_CASTFORM) {
 			if (tileAddress != tileGfxCompressed) {
 				memcpy(tileGfxCompressed, tileAddress, size);
 				tileAddress = tileGfxCompressed;
 			}
-			meta.size = size = lz77_truncate(
-				(uint8_t*) tileGfxCompressed, sizeof(tileGfxCompressed), 2048);
+			meta.size = size = lz77_truncate(tileGfxCompressed, sizeof(tileGfxCompressed), 2048);
 		}
 	}
 
